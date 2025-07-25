@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useTheme } from '../../contexts/ThemeContext';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useTheme } from '@/contexts/ThemeContext';
 import DatePicker from 'react-datepicker';
-import "react-datepicker/dist/react-datepicker.css";
-import Layout from '../../components/Layout';
-import LeadSidebar from '../../components/LeadSidebar';
-import LeadDetailSidebar from '../../components/LeadDetailSidebar';
-import TaskSidebar from '../../components/TaskSidebar';
+import 'react-datepicker/dist/react-datepicker.css';
+import LeadSidebar from '@/components/LeadSidebar';
+import LeadDetailSidebar from '@/components/LeadDetailSidebar';
+import TaskSidebar from '@/components/TaskSidebar';
 
 // Define product tree types
 type ProductNode = {
@@ -42,6 +42,8 @@ interface Lead {
 }
 
 export default function LeadsPage() {
+  const router = useRouter();
+  const urlSearchParams = useSearchParams();
   const { theme } = useTheme();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -125,7 +127,30 @@ export default function LeadsPage() {
     return result;
   };
 
-  // 获取线索列表数据
+  // 添加状态码转换函数（移到这里）
+  const getStatusCode = (status: string): number => {
+    const statusMap: { [key: string]: number } = {
+      '已战败': 0,
+      '未跟进': 1,
+      '跟进中': 2,
+      '已成交': 3,
+    };
+    return statusMap[status] ?? 1; // 默认未跟进
+  };
+
+  const getLevelCode = (level: string): number => {
+    const levelMap: { [key: string]: number } = {
+      'H级': 1,
+      'A级': 2,
+      'B级': 3,
+      'C级': 4,
+      'N级': 5,
+      'O级': 6,
+      'F级': 7,
+    };
+    return levelMap[level] ?? 5; // 默认N级
+  };
+
   // 添加日期格式化辅助函数
   const formatDateToLocal = (date: Date, isEndTime: boolean = false): string => {
     const year = date.getFullYear();
@@ -134,6 +159,7 @@ export default function LeadsPage() {
     const time = isEndTime ? '23:59:59' : '00:00:00';
     return `${year}-${month}-${day} ${time}`;
   };
+
 
   // 然后在fetchLeads函数中使用：
   const fetchLeads = useCallback(async () => {
@@ -225,30 +251,74 @@ export default function LeadsPage() {
   }, [currentPage, pageSize, searchParams]);
 
 
-  // 添加状态码转换函数
-  const getStatusCode = (status: string): number => {
-    const statusMap: { [key: string]: number } = {
-      '已战败': 0,
-      '未跟进': 1,
-      '跟进中': 2,
-      '已成交': 3,
+  // 处理URL参数的函数
+  const parseUrlParams = useCallback(() => {
+    const params = {
+      createTimeStart: null as Date | null,
+      createTimeEnd: null as Date | null,
+      lastFollowTimeStart: null as Date | null,
+      lastFollowTimeEnd: null as Date | null,
+      nextFollowTimeStart: null as Date | null,
+      nextFollowTimeEnd: null as Date | null,
+      phone: '',
+      level: '',
+      status: '',
+      product: '',
+      aiCall: '',
     };
-    return statusMap[status] ?? 1; // 默认未跟进
-  };
 
-  const getLevelCode = (level: string): number => {
-    const levelMap: { [key: string]: number } = {
-      'H级': 1,
-      'A级': 2,
-      'B级': 3,
-      'C级': 4,
-      'N级': 5,
-      'O级': 6,
-      'F级': 7,
-    };
-    return levelMap[level] ?? 5; // 默认N级
-  };
+    // 处理日期参数
+    const createTimeStart = urlSearchParams.get('createTimeStart');
+    const createTimeEnd = urlSearchParams.get('createTimeEnd');
+    const lastFollowTimeStart = urlSearchParams.get('lastFollowTimeStart');
+    const lastFollowTimeEnd = urlSearchParams.get('lastFollowTimeEnd');
+    const nextFollowTimeStart = urlSearchParams.get('nextFollowTimeStart');
+    const nextFollowTimeEnd = urlSearchParams.get('nextFollowTimeEnd');
+    
+    if (createTimeStart) {
+      params.createTimeStart = new Date(createTimeStart);
+    }
+    if (createTimeEnd) {
+      params.createTimeEnd = new Date(createTimeEnd);
+    }
+    if (lastFollowTimeStart) {
+      params.lastFollowTimeStart = new Date(lastFollowTimeStart);
+    }
+    if (lastFollowTimeEnd) {
+      params.lastFollowTimeEnd = new Date(lastFollowTimeEnd);
+    }
+    if (nextFollowTimeStart) {
+      params.nextFollowTimeStart = new Date(nextFollowTimeStart);
+    }
+    if (nextFollowTimeEnd) {
+      params.nextFollowTimeEnd = new Date(nextFollowTimeEnd);
+    }
 
+    // 处理字符串参数
+    const phone = urlSearchParams.get('phone');
+    const level = urlSearchParams.get('level');
+    const status = urlSearchParams.get('status');
+    const product = urlSearchParams.get('product');
+    const aiCall = urlSearchParams.get('aiCall');
+    
+    if (phone) {
+      params.phone = phone;
+    }
+    if (level) {
+      params.level = level;
+    }
+    if (status) {
+      params.status = status;
+    }
+    if (product) {
+      params.product = product;
+    }
+    if (aiCall) {
+      params.aiCall = aiCall;
+    }
+
+    return params;
+  }, [urlSearchParams]);
 
   useEffect(() => {
     // 页面加载时获取产品数据
@@ -269,9 +339,24 @@ export default function LeadsPage() {
       setUserName('未知用户');
     }
     
-    // 初始化时获取线索数据（不带搜索条件）
-    fetchLeadsWithoutSearch();
-  }, []);
+    // 解析URL参数并设置搜索条件
+    const urlParams = parseUrlParams();
+    const hasUrlParams = Object.values(urlParams).some(value => 
+      value !== null && value !== '' && value !== undefined
+    );
+    
+    if (hasUrlParams) {
+      // 如果有URL参数，设置搜索条件并执行搜索
+      setSearchParams(urlParams);
+      // 延迟执行搜索，确保searchParams已更新
+      setTimeout(() => {
+        fetchLeads();
+      }, 100);
+    } else {
+      // 如果没有URL参数，执行默认的无搜索条件查询
+      fetchLeadsWithoutSearch();
+    }
+  }, []); // 移除 parseUrlParams 依赖，只在组件挂载时执行一次
 
   // 只有当分页变化时重新获取数据（不包括搜索参数变化）
   useEffect(() => {
@@ -477,49 +562,62 @@ export default function LeadsPage() {
   };
 
   return (
-    <Layout activeMenu="leads">
-      {/* 设置页面最小宽度为1000px，屏幕宽了自动拉伸 */}
-      <div className="min-w-[1000px] space-y-6">
-        {/* 页面标题 */}
-        <div>
-          <h1 className={`text-2xl font-semibold ${
-            theme === 'dark' ? 'text-white' : 'text-gray-900'
-          }`}>
-            线索管理
-          </h1>
-          <p className={`mt-1 text-sm ${
-            theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-          }`}>
-            管理和跟踪您的销售线索
-          </p>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 relative overflow-hidden">
+      {/* 动态背景粒子效果 */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl animate-pulse delay-500"></div>
+      </div>
+      {/* 返回按钮 */}
+      <div className="relative z-10 p-6">
+        <button
+          onClick={() => window.location.href = '/robots'}
+          className="group flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm border border-blue-500/30 rounded-lg text-blue-300 hover:text-white hover:border-blue-400/50 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25"
+        >
+          <svg className="w-5 h-5 transform group-hover:-translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          <span className="font-medium">返回智能工作台</span>
+        </button>
+      </div>
 
-        {/* 搜索区域 */}
-        <div className="saas-card">
-          <h2 className={`text-lg font-medium mb-4 ${
-            theme === 'dark' ? 'text-white' : 'text-gray-900'
-          }`}>
-            搜索筛选
+      {/* 页面标题 */}
+      <div className="relative z-10 text-center mb-8">
+        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent mb-2">
+          线索管理中心
+        </h1>
+        <p className="text-blue-300/80 text-lg">智能化线索管理，提升转化效率</p>
+      </div>
+
+      {/* 主要内容区域 */}
+      <div className="relative z-10 max-w-7xl mx-auto px-6 pb-8">
+        {/* 搜索筛选区域 */}
+        <div className="bg-gradient-to-r from-slate-800/50 to-blue-900/30 backdrop-blur-sm border border-blue-500/20 rounded-xl p-6 mb-6 shadow-xl">
+          <h2 className="text-xl font-semibold text-blue-300 mb-4 flex items-center">
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            智能筛选
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {/* 创建时间 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 创建时间
               </label>
               <div className="flex space-x-2">
                 <DatePicker
                   selected={searchParams.createTimeStart}
                   onChange={(date: Date | null) => handleSearchChange('createTimeStart', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="开始时间"
                 />
                 <DatePicker
                   selected={searchParams.createTimeEnd}
                   onChange={(date: Date | null) => handleSearchChange('createTimeEnd', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="结束时间"
                 />
               </div>
@@ -527,22 +625,20 @@ export default function LeadsPage() {
 
             {/* 最新跟进时间 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 最新跟进时间
               </label>
               <div className="flex space-x-2">
                 <DatePicker
                   selected={searchParams.lastFollowTimeStart}
                   onChange={(date: Date | null) => handleSearchChange('lastFollowTimeStart', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="开始时间"
                 />
                 <DatePicker
                   selected={searchParams.lastFollowTimeEnd}
                   onChange={(date: Date | null) => handleSearchChange('lastFollowTimeEnd', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="结束时间"
                 />
               </div>
@@ -550,22 +646,20 @@ export default function LeadsPage() {
 
             {/* 下次跟进时间 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 下次跟进时间
               </label>
               <div className="flex space-x-2">
                 <DatePicker
                   selected={searchParams.nextFollowTimeStart}
                   onChange={(date: Date | null) => handleSearchChange('nextFollowTimeStart', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="开始时间"
                 />
                 <DatePicker
                   selected={searchParams.nextFollowTimeEnd}
                   onChange={(date: Date | null) => handleSearchChange('nextFollowTimeEnd', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="结束时间"
                 />
               </div>
@@ -573,80 +667,72 @@ export default function LeadsPage() {
 
             {/* 手机号 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 手机号
               </label>
               <input
                 type="text"
                 value={searchParams.phone}
                 onChange={(e) => handleSearchChange('phone', e.target.value)}
-                className="input-field"
+                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                 placeholder="请输入手机号"
               />
             </div>
 
             {/* 客户等级 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 客户等级
               </label>
               <select
                 value={searchParams.level}
                 onChange={(e) => handleSearchChange('level', e.target.value)}
-                className="input-field"
+                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
               >
-                <option value="">全部</option>
-                <option value="H级">H级</option>
-                <option value="A级">A级</option>
-                <option value="B级">B级</option>
-                <option value="C级">C级</option>
-                <option value="N级">N级</option>
+                <option value="" className="bg-slate-800">全部</option>
+                <option value="H级" className="bg-slate-800">H级</option>
+                <option value="A级" className="bg-slate-800">A级</option>
+                <option value="B级" className="bg-slate-800">B级</option>
+                <option value="C级" className="bg-slate-800">C级</option>
+                <option value="N级" className="bg-slate-800">N级</option>
               </select>
             </div>
 
             {/* 线索状态 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 线索状态
               </label>
               <select
                 value={searchParams.status}
                 onChange={(e) => handleSearchChange('status', e.target.value)}
-                className="input-field"
+                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
               >
-                <option value="">全部</option>
-                <option value="未跟进">未跟进</option>
-                <option value="跟进中">跟进中</option>
-                <option value="已到店">已到店</option>
-                <option value="已战败">已战败</option>
-                <option value="已成交">已成交</option>
+                <option value="" className="bg-slate-800">全部</option>
+                <option value="未跟进" className="bg-slate-800">未跟进</option>
+                <option value="跟进中" className="bg-slate-800">跟进中</option>
+                <option value="已到店" className="bg-slate-800">已到店</option>
+                <option value="已战败" className="bg-slate-800">已战败</option>
+                <option value="已成交" className="bg-slate-800">已成交</option>
               </select>
             </div>
 
             {/* 车型 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 车型
               </label>
               <select
                 value={searchParams.product}
                 onChange={(e) => handleSearchChange('product', e.target.value)}
-                className="input-field"
+                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                 disabled={isLoadingProducts}
               >
-                <option value="">
+                <option value="" className="bg-slate-800">
                   {isLoadingProducts ? '加载产品中...' : '全部'}
                 </option>
                 {flattenProducts(Array.isArray(products) ? products : []).map((option) => (
-                  <option key={option.value} value={option.value}>
+                  <option key={option.value} value={option.value} className="bg-slate-800">
                     {option.label}
                   </option>
                 ))}
@@ -655,19 +741,17 @@ export default function LeadsPage() {
 
             {/* AI外呼 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 AI外呼
               </label>
               <select
                 value={searchParams.aiCall}
                 onChange={(e) => handleSearchChange('aiCall', e.target.value)}
-                className="input-field"
+                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
               >
-                <option value="">全部</option>
-                <option value="true">是</option>
-                <option value="false">否</option>
+                <option value="" className="bg-slate-800">全部</option>
+                <option value="true" className="bg-slate-800">是</option>
+                <option value="false" className="bg-slate-800">否</option>
               </select>
             </div>
           </div>
@@ -676,190 +760,174 @@ export default function LeadsPage() {
           <div className="mt-6 flex justify-end space-x-3">
             <button
               onClick={handleReset}
-              className="btn-secondary"
+              className="px-6 py-2 bg-slate-700/50 border border-slate-500/30 rounded-lg text-slate-300 hover:text-white hover:border-slate-400/50 transition-all duration-300 hover:shadow-lg"
             >
               重置
             </button>
             <button
               onClick={() => fetchLeads()}
-              className="btn-primary"
+              className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 border border-blue-500/30 rounded-lg text-white hover:from-blue-500 hover:to-purple-500 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25"
             >
               搜索
             </button>
           </div>
         </div>
 
-        {/* 列表区域 - 调整容器宽度 */}
-        <div className="saas-card p-0 overflow-hidden min-w-[1000px]">
+        {/* 列表区域 */}
+        <div className="bg-gradient-to-r from-slate-800/50 to-blue-900/30 backdrop-blur-sm border border-blue-500/20 rounded-xl overflow-hidden shadow-xl min-w-[1000px]">
           {/* 操作按钮区域 */}
-          <div className={`p-6 flex justify-between items-center border-b ${
-            theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-          }`}>
+          <div className="p-6 flex justify-between items-center border-b border-blue-500/20">
             <div className="flex items-center space-x-4">
               <button
                 onClick={handleCreateTask}
                 disabled={selectedLeads.length === 0}
-                className={selectedLeads.length === 0 ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary'}
+                className={selectedLeads.length === 0 
+                  ? 'px-4 py-2 bg-slate-700/30 border border-slate-500/20 rounded-lg text-slate-500 cursor-not-allowed' 
+                  : 'px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 border border-green-500/30 rounded-lg text-white hover:from-green-500 hover:to-emerald-500 transition-all duration-300 hover:shadow-lg hover:shadow-green-500/25'
+                }
               >
-                
                 创建任务
               </button>
-              <span className={`text-sm ${
-                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-              }`}>
-                已选择 {selectedLeads.length} 项
+              <span className="text-sm text-blue-300/80">
+                已选择 <span className="text-blue-300 font-medium">{selectedLeads.length}</span> 项
               </span>
             </div>
             <button
               onClick={handleCreateLead}
-              className="btn-primary"
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 border border-blue-500/30 rounded-lg text-white hover:from-blue-500 hover:to-purple-500 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25"
             >
-            
               新建线索
             </button>
           </div>
 
-          {/* 修改表格容器，使用固定宽度并添加水平滚动 */}
+          {/* 表格容器 */}          
           <div className="relative">
-            {/* 添加一个滚动容器，设置固定高度和滚动 */}
-            <div className="overflow-auto max-h-[600px]">
-              <table className="w-full table-fixed" style={{ minWidth: '1200px' }}>
-                <thead className={`${
-                  theme === 'dark' ? 'bg-gray-800' : 'bg-gray-50'
-                }`}>
+            {leads.length === 0 ? (
+              // 空状态提示
+              <div className="flex flex-col items-center justify-center py-16 px-6">
+                <div className="text-center">
+                  <svg className="mx-auto h-16 w-16 text-blue-300/50 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <h3 className="text-lg font-medium text-blue-300/90 mb-2">暂无线索数据</h3>
+                  <p className="text-sm text-blue-300/60 mb-6">
+                    当前筛选条件下没有找到相关线索，您可以：
+                  </p>
+                  <div className="space-y-2 text-sm text-blue-300/70">
+                    <p>• 调整筛选条件重新搜索</p>
+                    <p>• 清空筛选条件查看全部线索</p>
+                    <p>• 创建新的线索</p>
+                  </div>
+                  <div className="mt-6 flex justify-center space-x-3">
+                    <button
+                      onClick={handleReset}
+                      className="px-4 py-2 bg-slate-700/50 border border-slate-500/30 rounded-lg text-slate-300 hover:text-white hover:border-slate-400/50 transition-all duration-300"
+                    >
+                      重置筛选
+                    </button>
+                    <button
+                      onClick={handleCreateLead}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 border border-blue-500/30 rounded-lg text-white hover:from-blue-500 hover:to-purple-500 transition-all duration-300"
+                    >
+                      新建线索
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // 原有的表格内容
+              <div className="overflow-auto max-h-[600px]">
+                <table className="w-full table-fixed" style={{ minWidth: '1200px' }}>
+                  <thead className="bg-gradient-to-r from-slate-800/80 to-blue-900/50">
                   <tr>
                     {/* 固定列：选择框 */}
-                    <th className={`sticky left-0 z-20 px-4 py-3 text-left text-sm font-medium ${
-                      theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                    }`} style={{ width: '50px' }}>
+                    <th className="sticky left-0 z-20 px-4 py-3 text-left text-sm font-medium text-blue-300 bg-gradient-to-r from-slate-800/80 to-blue-900/50" style={{ width: '50px' }}>
                       <input
                         type="checkbox"
                         checked={selectedLeads.length === leads.length && leads.length > 0}
                         onChange={(e) => handleSelectAll(e.target.checked)}
-                        className={`rounded ${
-                          theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-                        }`}
+                        className="rounded bg-slate-700/50 border-blue-500/30 text-blue-500 focus:ring-blue-500/50"
                       />
                     </th>
                     {/* 固定列：姓名 */}
-                    <th className={`sticky left-[50px] z-20 px-4 py-3 text-left text-sm font-medium ${
-                      theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                    }`} style={{ width: '100px' }}>姓名</th>
+                    <th className="sticky left-[50px] z-20 px-4 py-3 text-left text-sm font-medium text-blue-300 bg-gradient-to-r from-slate-800/80 to-blue-900/50" style={{ width: '100px' }}>姓名</th>
                     {/* 固定列：手机号 */}
-                    <th className={`sticky left-[150px] z-20 px-4 py-3 text-left text-sm font-medium ${
-                      theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                    }`} style={{ width: '120px' }}>手机号</th>
+                    <th className="sticky left-[150px] z-20 px-4 py-3 text-left text-sm font-medium text-blue-300 bg-gradient-to-r from-slate-800/80 to-blue-900/50" style={{ width: '120px' }}>手机号</th>
                     {/* 其他列 */}
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '100px' }}>来源</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '200px' }}>意向产品</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '100px' }}>线索状态</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '100px' }}>客户等级</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '100px' }}>跟进人</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '230px' }}>最新跟进时间</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '230px' }}>下次跟进时间</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '80px' }}>AI外呼</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '230px' }}>计划到店时间</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '230px' }}>创建时间</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '200px' }}>备注</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '100px' }}>来源</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '200px' }}>意向产品</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '100px' }}>线索状态</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '100px' }}>客户等级</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '100px' }}>跟进人</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '230px' }}>最新跟进时间</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '230px' }}>下次跟进时间</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '80px' }}>AI外呼</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '230px' }}>计划到店时间</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '230px' }}>创建时间</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '200px' }}>备注</th>
                     {/* 固定列：详情 */}
-                    <th className={`sticky right-0 z-20 px-4 py-3 text-left text-sm font-medium ${
-                      theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                    }`} style={{ width: '100px' }}>详情</th>
+                    <th className="sticky right-0 z-20 px-4 py-3 text-left text-sm font-medium text-blue-300 bg-gradient-to-r from-slate-800/80 to-blue-900/50" style={{ width: '100px' }}>详情</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {leads.map((lead) => (
-                    <tr key={lead.id} className={`${
-                      theme === 'dark' ? 'hover:bg-gray-800' : 'hover:bg-gray-50'
-                    }`}>
+                  {leads.map((lead, index) => (
+                    <tr key={lead.id} className="hover:bg-gradient-to-r hover:from-blue-900/20 hover:to-purple-900/20 transition-all duration-300 border-b border-blue-500/10">
                       {/* 固定列：选择框 */}
-                      <td className={`sticky left-0 z-10 px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>
+                      <td className="sticky left-0 z-10 px-4 py-3 bg-gradient-to-r from-slate-800/60 to-blue-900/40">
                         <input
                           type="checkbox"
                           checked={selectedLeads.includes(lead.id)}
                           onChange={(e) => handleSelectLead(lead.id, e.target.checked)}
-                          className={`rounded ${
-                            theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-                          }`}
+                          className="rounded bg-slate-700/50 border-blue-500/30 text-blue-500 focus:ring-blue-500/50"
                         />
                       </td>
                       {/* 固定列：姓名 */}
-                      <td className={`sticky left-[50px] z-10 px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.name}</td>
+                      <td className="sticky left-[50px] z-10 px-4 py-3 bg-gradient-to-r from-slate-800/60 to-blue-900/40 text-blue-100">{lead.name}</td>
                       {/* 固定列：手机号 */}
-                      <td className={`sticky left-[150px] z-10 px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.phone}</td>
+                      <td className="sticky left-[150px] z-10 px-4 py-3 bg-gradient-to-r from-slate-800/60 to-blue-900/40 text-blue-100">{lead.phone}</td>
                       {/* 其他列 */}
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.source}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.product}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>
-                        <span className={`badge ${
-                          lead.status === '已成交' ? 'badge-success' :
-                          lead.status === '已战败' ? 'badge-error' :
-                          lead.status === '已到店' ? 'badge-info' :
-                          lead.status === '跟进中' ? 'badge-warning' :
-                          'badge-gray'
+                      <td className="px-4 py-3 text-blue-100">{lead.source}</td>
+                      <td className="px-4 py-3 text-blue-100">{lead.product}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          lead.status === '已成交' ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
+                          lead.status === '已战败' ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
+                          lead.status === '已到店' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' :
+                          lead.status === '跟进中' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
+                          'bg-slate-500/20 text-slate-300 border border-slate-500/30'
                         }`}>
                           {lead.status}
                         </span>
                       </td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.level}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.follower}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.lastFollowTime}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.nextFollowTime}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>
-                        <span className={`badge ${
-                          lead.aiCall ? 'badge-success' : 'badge-gray'
+                      <td className="px-4 py-3 text-blue-100">{lead.level}</td>
+                      <td className="px-4 py-3 text-blue-100">{lead.follower}</td>
+                      <td className="px-4 py-3 text-blue-100">{lead.lastFollowTime}</td>
+                      <td className="px-4 py-3 text-blue-100">{lead.nextFollowTime}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          lead.aiCall ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
                         }`}>
                           {lead.aiCall ? '是' : '否'}
                         </span>
                       </td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.planVisitTime}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{lead.createTime}</td>
+                      <td className="px-4 py-3 text-blue-100">{lead.planVisitTime}</td>
+                      <td className="px-4 py-3 text-blue-100">{lead.createTime}</td>
                       {/* 备注列：添加鼠标悬停显示完整内容 */}
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>
+                      <td className="px-4 py-3">
                         <div className="relative group">
-                          <div className="truncate max-w-[180px]">{lead.remark || '-'}</div>
+                          <div className="truncate max-w-[180px] text-blue-100">{lead.remark || '-'}</div>
                           {lead.remark && (
-                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block bg-white dark:bg-gray-800 p-2 rounded shadow-lg z-50 max-w-md">
+                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block bg-slate-800/90 backdrop-blur-sm border border-blue-500/30 p-2 rounded-lg shadow-xl z-50 max-w-md text-blue-100">
                               {lead.remark}
                             </div>
                           )}
                         </div>
                       </td>
                       {/* 固定列：详情 */}
-                      <td className={`sticky right-0 z-10 px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>
+                      <td className="sticky right-0 z-10 px-4 py-3 bg-gradient-to-r from-slate-800/60 to-blue-900/40">
                         <button 
                           onClick={() => handleViewLeadDetail(lead.id)}
-                          className="btn-outline text-sm py-1 px-3"
+                          className="px-3 py-1 text-sm bg-gradient-to-r from-blue-600/50 to-purple-600/50 border border-blue-500/30 rounded-lg text-blue-300 hover:text-white hover:from-blue-500/70 hover:to-purple-500/70 transition-all duration-300"
                         >
                           查看
                         </button>
@@ -869,35 +937,34 @@ export default function LeadsPage() {
                 </tbody>
               </table>
             </div>
+            )}
           </div>
+          
+
 
           {/* 分页 */}
-          <div className={`px-6 py-4 flex items-center justify-between border-t ${
-            theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-          }`}>
+          <div className="px-6 py-4 flex items-center justify-between border-t border-blue-500/20">
             <div className="flex-1 flex justify-between sm:hidden">
               <button
                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
-                className="btn-outline"
+                className="px-4 py-2 bg-slate-700/50 border border-slate-500/30 rounded-lg text-slate-300 hover:text-white hover:border-slate-400/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 上一页
               </button>
               <button
                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                 disabled={currentPage === totalPages}
-                className="btn-outline"
+                className="px-4 py-2 bg-slate-700/50 border border-slate-500/30 rounded-lg text-slate-300 hover:text-white hover:border-slate-400/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 下一页
               </button>
             </div>
             <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
               <div>
-                <p className={`text-sm ${
-                  theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                }`}>
-                  第 <span className="font-medium">{currentPage}</span> 页，
-                  共 <span className="font-medium">{totalPages}</span> 页
+                <p className="text-sm text-blue-300/80">
+                  第 <span className="font-medium text-blue-300">{currentPage}</span> 页，
+                  共 <span className="font-medium text-blue-300">{totalPages}</span> 页
                 </p>
               </div>
               <div>
@@ -907,10 +974,8 @@ export default function LeadsPage() {
                     disabled={currentPage === 1}
                     className={`p-2 rounded-lg transition-colors ${
                       currentPage === 1
-                        ? 'opacity-50 cursor-not-allowed'
-                        : theme === 'dark'
-                        ? 'hover:bg-gray-700 text-gray-300'
-                        : 'hover:bg-gray-100 text-gray-700'
+                        ? 'opacity-50 cursor-not-allowed text-slate-500'
+                        : 'hover:bg-blue-600/20 text-blue-300 hover:text-white'
                     }`}
                   >
                     <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -936,10 +1001,8 @@ export default function LeadsPage() {
                         onClick={() => setCurrentPage(page)}
                         className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                           page === currentPage
-                            ? 'bg-blue-600 text-white'
-                            : theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                            : 'hover:bg-blue-600/20 text-blue-300 hover:text-white'
                         }`}
                       >
                         {page}
@@ -952,10 +1015,8 @@ export default function LeadsPage() {
                     disabled={currentPage === totalPages}
                     className={`p-2 rounded-lg transition-colors ${
                       currentPage === totalPages
-                        ? 'opacity-50 cursor-not-allowed'
-                        : theme === 'dark'
-                        ? 'hover:bg-gray-700 text-gray-300'
-                        : 'hover:bg-gray-100 text-gray-700'
+                        ? 'opacity-50 cursor-not-allowed text-slate-500'
+                        : 'hover:bg-blue-600/20 text-blue-300 hover:text-white'
                     }`}
                   >
                     <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -967,7 +1028,7 @@ export default function LeadsPage() {
             </div>
           </div>
         </div>
-      </div>
+
       {/* 添加 LeadSidebar 组件 */}
       <LeadSidebar
         userName={userName}
@@ -1017,6 +1078,7 @@ export default function LeadsPage() {
           />
         </div>
       )}
-    </Layout>
+    </div>
+  </div>
   );
 }

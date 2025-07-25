@@ -533,12 +533,15 @@ export default function LeadDetailSidebar({ isOpen, onClose, leadId }: LeadDetai
 
                 {/* 添加跟进记录表单 */}
                 {showAddFollowForm && (
-                  <div className={`p-6 border-b ${
-                    theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'
+                  <div className={`p-6 border-b ${theme === 'dark' 
+                    ? 'border-gray-700 bg-blue-900/5' 
+                    : 'border-gray-200 bg-blue-50/50'
                   }`}>
-                    <h5 className={`text-sm font-medium mb-4 ${
-                      theme === 'dark' ? 'text-white' : 'text-gray-900'
+                    <h5 className={`text-sm font-medium mb-4 flex items-center ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
                     }`}>
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                      </svg>
                       添加跟进记录
                     </h5>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -660,10 +663,25 @@ export default function LeadDetailSidebar({ isOpen, onClose, leadId }: LeadDetai
                       </button>
                       <button
                         onClick={handleAddFollow}
-                        className="btn-primary"
+                        className="btn-primary flex items-center"
                         disabled={isAddingFollow}
                       >
-                        {isAddingFollow ? '添加中...' : '添加跟进'}
+                        {isAddingFollow ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            添加中...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            添加跟进
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
@@ -672,22 +690,27 @@ export default function LeadDetailSidebar({ isOpen, onClose, leadId }: LeadDetai
                 {/* 跟进记录表格 */}
                 <div className="overflow-auto max-h-[400px]">
                   <table className="w-full table-fixed">
-                    <thead className={`${
-                      theme === 'dark' ? 'bg-gray-800' : 'bg-gray-50'
+                    <thead className={`sticky top-0 z-10 ${theme === 'dark' 
+                      ? 'bg-blue-900/20 border-b border-blue-500/30' 
+                      : 'bg-blue-50 border-b border-blue-200'
                     }`}>
                       <tr>
-                        <th className="px-2 py-2 text-left text-sm font-medium" style={{width: '200px'}}>跟进时间</th>
-                        <th className="px-2 py-2 text-left text-sm font-medium" style={{width: '150px'}}>跟进人</th>
-                        <th className="px-2 py-2 text-left text-sm font-medium" style={{width: '150px'}}>跟进类型</th>
-                        <th className="px-2 py-2 text-left text-sm font-medium" style={{width: '200px'}}>下次跟进时间</th>
-                        <th className="px-2 py-2 text-left text-sm font-medium" style={{width: '200px'}}>计划到店时间</th>
-                        <th className="px-2 py-2 text-left text-sm font-medium" style={{width: '200px'}}>备注</th>
+                        <th className={`px-2 py-3 text-left text-sm font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`} style={{width: '200px'}}>跟进时间</th>
+                        <th className={`px-2 py-3 text-left text-sm font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`} style={{width: '150px'}}>跟进人</th>
+                        <th className={`px-2 py-3 text-left text-sm font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`} style={{width: '150px'}}>跟进类型</th>
+                        <th className={`px-2 py-3 text-left text-sm font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`} style={{width: '200px'}}>下次跟进时间</th>
+                        <th className={`px-2 py-3 text-left text-sm font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`} style={{width: '200px'}}>计划到店时间</th>
+                        <th className={`px-2 py-3 text-left text-sm font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`} style={{width: '200px'}}>备注</th>
                       </tr>
                     </thead>
                     <tbody>
                       {followRecords.length > 0 ? (
                         followRecords.map((record) => (
-                          <tr key={record.follow_id} className="h-12 border-b border-gray-100 hover:bg-gray-50">
+                          <tr key={record.follow_id} className={`h-12 border-b transition-colors ${
+                            theme === 'dark' 
+                              ? 'border-gray-700 hover:bg-blue-900/10' 
+                              : 'border-gray-100 hover:bg-blue-50/50'
+                          }`}>
                             <td className="px-2 py-1 text-sm" style={{width: '200px'}}>
                               <div className="truncate">{record.follow_time}</div>
                             </td>
@@ -709,7 +732,11 @@ export default function LeadDetailSidebar({ isOpen, onClose, leadId }: LeadDetai
                             </td>
                             <td className="px-2 py-1 text-sm relative" style={{width: '200px'}}>
                               <div 
-                                className="truncate cursor-pointer hover:text-blue-600 transition-colors"
+                                className={`truncate cursor-pointer transition-colors ${
+                                  theme === 'dark' 
+                                    ? 'hover:text-blue-400' 
+                                    : 'hover:text-blue-600'
+                                }`}
                                 title={record.remark || '-'}
                                 onMouseEnter={(e) => {
                                   if (record.remark && record.remark.length > 20) {

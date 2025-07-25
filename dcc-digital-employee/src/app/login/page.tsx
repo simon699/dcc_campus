@@ -81,8 +81,8 @@ export default function Login() {
         throw new Error(result.message || '登录失败');
       }
 
-      // Redirect to home page
-      router.push('/');
+      // Redirect to robots page
+      router.push('/robots');
     } catch (err) {
       setError('登录失败，请重试');
       console.error('Login error:', err);

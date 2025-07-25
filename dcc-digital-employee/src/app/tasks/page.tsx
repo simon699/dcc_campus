@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
-import Layout from '../../components/Layout';
 import TaskDetailSidebar from '../../components/TaskDetailSidebar';
+import TasksDataDashboard from '../../components/TasksDataDashboard';
 
 // 任务接口定义
 interface Task {
@@ -79,6 +79,24 @@ export default function TasksPage() {
     const day = String(date.getDate()).padStart(2, '0');
     const time = isEndTime ? '23:59:59' : '00:00:00';
     return `${year}-${month}-${day} ${time}`;
+  };
+
+  // 添加日期时间格式化函数
+  const formatDateTime = (dateTimeString: string): string => {
+    if (!dateTimeString) return '-';
+    try {
+      const date = new Date(dateTimeString);
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch (error) {
+      return dateTimeString;
+    }
   };
 
   // 获取任务列表数据
@@ -257,48 +275,63 @@ export default function TasksPage() {
   };
 
   return (
-    <Layout activeMenu="tasks">
-      <div className="min-w-[1000px] space-y-6">
-        {/* 页面标题 */}
-        <div>
-          <h1 className={`text-2xl font-semibold ${
-            theme === 'dark' ? 'text-white' : 'text-gray-900'
-          }`}>
-            任务管理
-          </h1>
-          <p className={`mt-1 text-sm ${
-            theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-          }`}>
-            管理和跟踪您的任务执行情况
-          </p>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 relative overflow-hidden">
+      {/* 动态背景粒子效果 */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl animate-pulse delay-500"></div>
+      </div>
+      
+      {/* 返回按钮 */}
+      <div className="relative z-10 p-6">
+        <button
+          onClick={() => window.location.href = '/robots'}
+          className="group flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm border border-blue-500/30 rounded-lg text-blue-300 hover:text-white hover:border-blue-400/50 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25"
+        >
+          <svg className="w-5 h-5 transform group-hover:-translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          <span className="font-medium">返回智能工作台</span>
+        </button>
+      </div>
 
-        {/* 搜索区域 */}
-        <div className="saas-card">
-          <h2 className={`text-lg font-medium mb-4 ${
-            theme === 'dark' ? 'text-white' : 'text-gray-900'
-          }`}>
-            搜索筛选
+      {/* 页面标题 */}
+      <div className="relative z-10 text-center mb-8">
+        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent mb-2">
+          任务管理中心
+        </h1>
+        <p className="text-blue-300/80 text-lg">智能化任务管理，提升执行效率</p>
+      </div>
+
+      {/* 主要内容区域 */}
+      <div className="relative z-10 max-w-7xl mx-auto px-6 pb-8">
+        {/* 搜索筛选区域 */}
+        <div className="bg-gradient-to-r from-slate-800/50 to-blue-900/30 backdrop-blur-sm border border-blue-500/20 rounded-xl p-6 mb-6 shadow-xl">
+          <h2 className="text-xl font-semibold text-blue-300 mb-4 flex items-center">
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            智能筛选
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {/* 创建时间 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 创建时间
               </label>
               <div className="flex space-x-2">
                 <DatePicker
                   selected={searchParams.createTimeStart}
                   onChange={(date: Date | null) => handleSearchChange('createTimeStart', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="开始时间"
                 />
                 <DatePicker
                   selected={searchParams.createTimeEnd}
                   onChange={(date: Date | null) => handleSearchChange('createTimeEnd', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="结束时间"
                 />
               </div>
@@ -306,22 +339,20 @@ export default function TasksPage() {
 
             {/* 执行时间 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 执行时间
               </label>
               <div className="flex space-x-2">
                 <DatePicker
                   selected={searchParams.executionTimeStart}
                   onChange={(date: Date | null) => handleSearchChange('executionTimeStart', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="开始时间"
                 />
                 <DatePicker
                   selected={searchParams.executionTimeEnd}
                   onChange={(date: Date | null) => handleSearchChange('executionTimeEnd', date)}
-                  className="input-field"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                   placeholderText="结束时间"
                 />
               </div>
@@ -329,31 +360,27 @@ export default function TasksPage() {
 
             {/* 任务名称 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 任务名称
               </label>
               <input
                 type="text"
                 value={searchParams.taskName}
                 onChange={(e) => handleSearchChange('taskName', e.target.value)}
-                className="input-field"
+                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 placeholder-blue-400/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
                 placeholder="请输入任务名称"
               />
             </div>
 
             {/* 任务状态 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 任务状态
               </label>
               <select
                 value={searchParams.status}
                 onChange={(e) => handleSearchChange('status', e.target.value)}
-                className="input-field"
+                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
               >
                 <option value="">全部</option>
                 <option value="未开始">未开始</option>
@@ -365,15 +392,13 @@ export default function TasksPage() {
 
             {/* 任务类型 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 任务类型
               </label>
               <select
                 value={searchParams.taskType}
                 onChange={(e) => handleSearchChange('taskType', e.target.value)}
-                className="input-field"
+                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
               >
                 <option value="">全部</option>
                 <option value="通知类">通知类</option>
@@ -383,15 +408,13 @@ export default function TasksPage() {
 
             {/* 任务方式 */}
             <div>
-              <label className={`block text-sm font-medium mb-2 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-              }`}>
+              <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 任务方式
               </label>
               <select
                 value={searchParams.taskMode}
                 onChange={(e) => handleSearchChange('taskMode', e.target.value)}
-                className="input-field"
+                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
               >
                 <option value="">全部</option>
                 <option value="手动">手动</option>
@@ -404,29 +427,25 @@ export default function TasksPage() {
           <div className="mt-6 flex justify-end space-x-3">
             <button
               onClick={handleReset}
-              className="btn-secondary"
+              className="px-6 py-2.5 bg-slate-700/50 border border-slate-500/30 rounded-lg text-slate-300 hover:text-white hover:border-slate-400/50 transition-all duration-300"
             >
               重置
             </button>
             <button
               onClick={handleSearch}
-              className="btn-primary"
+              className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-lg hover:from-blue-700 hover:to-cyan-700 transition-all duration-300 shadow-lg hover:shadow-xl"
             >
               搜索
             </button>
           </div>
         </div>
 
-        {/* 列表区域 */}
-        <div className="saas-card p-0 overflow-hidden min-w-[1000px]">
+        {/* 任务列表区域 */}
+        <div className="bg-gradient-to-r from-slate-800/50 to-blue-900/30 backdrop-blur-sm border border-blue-500/20 rounded-xl shadow-xl overflow-hidden">
           {/* 操作按钮区域 */}
-          <div className={`p-6 flex justify-between items-center border-b ${
-            theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-          }`}>
+          <div className="p-6 flex justify-between items-center border-b border-blue-500/20">
             <div className="flex items-center space-x-4">
-              <span className={`text-sm ${
-                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-              }`}>
+              <span className="text-sm text-blue-300/80">
                 已选择 {selectedTasks.length} 项
               </span>
             </div>
@@ -436,135 +455,96 @@ export default function TasksPage() {
           <div className="relative">
             <div className="overflow-auto max-h-[600px]">
               <table className="w-full table-fixed" style={{ minWidth: '1200px' }}>
-                <thead className={`${
-                  theme === 'dark' ? 'bg-gray-800' : 'bg-gray-50'
-                }`}>
+                <thead className="bg-gradient-to-r from-slate-800/80 to-blue-900/50 sticky top-0 z-10">
                   <tr>
-                    <th className={`sticky left-0 z-20 px-4 py-3 text-left text-sm font-medium ${
-                      theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                    }`} style={{ width: '50px' }}>
+                    <th className="sticky left-0 z-20 px-4 py-3 text-left text-sm font-medium text-blue-300 bg-gradient-to-r from-slate-800/80 to-blue-900/50" style={{ width: '50px' }}>
                       <input
                         type="checkbox"
                         checked={selectedTasks.length === tasks.length && tasks.length > 0}
                         onChange={(e) => handleSelectAll(e.target.checked)}
-                        className={`rounded ${
-                          theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-                        }`}
+                        className="rounded bg-slate-700/50 border-blue-500/30"
                       />
                     </th>
-                    <th className={`sticky left-[50px] z-20 px-4 py-3 text-left text-sm font-medium ${
-                      theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                    }`} style={{ width: '200px' }}>任务名称</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '100px' }}>任务类型</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '100px' }}>任务方式</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '120px' }}>任务状态</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '100px' }}>线索数量</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '180px' }}>执行时间</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '100px' }}>创建人</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '180px' }}>创建时间</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium" style={{ width: '200px' }}>操作</th>
-                    <th className={`sticky right-0 z-20 px-4 py-3 text-left text-sm font-medium ${
-                      theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                    }`} style={{ width: '100px' }}>详情</th>
+                    <th className="sticky left-[50px] z-20 px-4 py-3 text-left text-sm font-medium text-blue-300 bg-gradient-to-r from-slate-800/80 to-blue-900/50" style={{ width: '200px' }}>任务名称</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '100px' }}>任务类型</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '100px' }}>任务方式</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '120px' }}>任务状态</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '100px' }}>线索数量</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '150px' }}>执行时间</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '100px' }}>创建人</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-blue-300" style={{ width: '150px' }}>创建时间</th>
+                    <th className="sticky right-0 z-20 px-4 py-3 text-left text-sm font-medium text-blue-300 bg-gradient-to-r from-slate-800/80 to-blue-900/50" style={{ width: '150px' }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {tasks.map((task) => (
-                    <tr key={task.id} className={`${
-                      theme === 'dark' ? 'hover:bg-gray-800' : 'hover:bg-gray-50'
-                    }`}>
-                      <td className={`sticky left-0 z-10 px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>
+                  {tasks.map((task, index) => (
+                    <tr key={task.id} className="hover:bg-gradient-to-r hover:from-blue-900/20 hover:to-purple-900/20 transition-all duration-300 border-b border-blue-500/10">
+                      <td className="sticky left-0 z-10 px-4 py-3 bg-gradient-to-r from-slate-800/50 to-blue-900/30">
                         <input
                           type="checkbox"
                           checked={selectedTasks.includes(task.id)}
                           onChange={(e) => handleSelectTask(task.id, e.target.checked)}
-                          className={`rounded ${
-                            theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-                          }`}
+                          className="rounded bg-slate-700/50 border-blue-500/30"
                         />
                       </td>
-                      <td className={`sticky left-[50px] z-10 px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{task.task_name}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{getTaskTypeText(task.task_type)}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{getTaskModeText(task.task_mode)}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>
-                        <span className={`badge ${
-                          task.status === 3 ? 'badge-success' :
-                          task.status === 4 ? 'badge-error' :
-                          task.status === 2 ? 'badge-warning' :
-                          'badge-gray'
+                      <td className="sticky left-[50px] z-10 px-4 py-3 bg-gradient-to-r from-slate-800/50 to-blue-900/30">
+                        <div className="font-medium text-blue-100 truncate" title={task.task_name}>
+                          {task.task_name}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-blue-200">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          task.task_type === 1 ? 'bg-blue-900/50 text-blue-300' : 'bg-purple-900/50 text-purple-300'
+                        }`}>
+                          {task.task_type === 1 ? '通知类' : '触达类'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-blue-200">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          task.task_mode === 1 ? 'bg-green-900/50 text-green-300' : 'bg-orange-900/50 text-orange-300'
+                        }`}>
+                          {task.task_mode === 1 ? '手动' : '自动'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          task.status === 1 ? 'bg-gray-900/50 text-gray-300' :
+                          task.status === 2 ? 'bg-blue-900/50 text-blue-300' :
+                          task.status === 3 ? 'bg-green-900/50 text-green-300' :
+                          'bg-yellow-900/50 text-yellow-300'
                         }`}>
                           {getStatusText(task.status)}
                         </span>
                       </td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{task.lead_count}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{task.execution_time || '-'}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{task.creator}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>{task.create_time}</td>
-                      <td className={`px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>
+                      <td className="px-4 py-3 text-blue-200">{task.lead_count}</td>
+                      <td className="px-4 py-3 text-blue-200">{formatDateTime(task.execution_time)}</td>
+                      <td className="px-4 py-3 text-blue-200">{task.creator}</td>
+                      <td className="px-4 py-3 text-blue-200">{formatDateTime(task.create_time)}</td>
+                      <td className="sticky right-0 z-10 px-4 py-3 bg-gradient-to-r from-slate-800/50 to-blue-900/30">
                         <div className="flex space-x-2">
+                          <button
+                            onClick={() => handleViewTaskDetail(task.id)}
+                            className="px-3 py-1 bg-blue-600/50 text-blue-200 rounded hover:bg-blue-600/70 transition-colors duration-200 text-sm"
+                          >
+                            详情
+                          </button>
                           {task.status === 1 && (
                             <button
                               onClick={() => handleUpdateTaskStatus(task.id, 2)}
-                              className="btn-outline text-xs py-1 px-2"
+                              className="px-3 py-1 bg-green-600/50 text-green-200 rounded hover:bg-green-600/70 transition-colors duration-200 text-sm"
                             >
                               开始
                             </button>
                           )}
                           {task.status === 2 && (
-                            <>
-                              <button
-                                onClick={() => handleUpdateTaskStatus(task.id, 4)}
-                                className="btn-outline text-xs py-1 px-2"
-                              >
-                                暂停
-                              </button>
-                              <button
-                                onClick={() => handleUpdateTaskStatus(task.id, 3)}
-                                className="btn-outline text-xs py-1 px-2"
-                              >
-                                完成
-                              </button>
-                            </>
-                          )}
-                          {task.status === 4 && (
                             <button
-                              onClick={() => handleUpdateTaskStatus(task.id, 2)}
-                              className="btn-outline text-xs py-1 px-2"
+                              onClick={() => handleUpdateTaskStatus(task.id, 4)}
+                              className="px-3 py-1 bg-yellow-600/50 text-yellow-200 rounded hover:bg-yellow-600/70 transition-colors duration-200 text-sm"
                             >
-                              继续
+                              暂停
                             </button>
                           )}
                         </div>
-                      </td>
-                      <td className={`sticky right-0 z-10 px-4 py-3 ${
-                        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
-                      }`}>
-                        <button 
-                          onClick={() => handleViewTaskDetail(task.id)}
-                          className="btn-outline text-sm py-1 px-3"
-                        >
-                          查看
-                        </button>
                       </td>
                     </tr>
                   ))}
@@ -574,109 +554,63 @@ export default function TasksPage() {
           </div>
 
           {/* 分页 */}
-          <div className={`px-6 py-4 flex items-center justify-between border-t ${
-            theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-          }`}>
-            <div className="flex-1 flex justify-between sm:hidden">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="btn-outline"
-              >
-                上一页
-              </button>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="btn-outline"
-              >
-                下一页
-              </button>
-            </div>
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className={`text-sm ${
-                  theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                }`}>
-                  第 <span className="font-medium">{currentPage}</span> 页，
-                  共 <span className="font-medium">{totalPages}</span> 页
-                </p>
+          <div className="px-6 py-4 border-t border-blue-500/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-4 py-2 bg-slate-700/50 border border-slate-500/30 rounded-lg text-slate-300 hover:text-white hover:border-slate-400/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  上一页
+                </button>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="px-4 py-2 bg-slate-700/50 border border-slate-500/30 rounded-lg text-slate-300 hover:text-white hover:border-slate-400/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  下一页
+                </button>
               </div>
-              <div>
-                <nav className="flex items-center space-x-1">
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                    disabled={currentPage === 1}
-                    className={`p-2 rounded-lg transition-colors ${
-                      currentPage === 1
-                        ? 'opacity-50 cursor-not-allowed'
-                        : theme === 'dark'
-                        ? 'hover:bg-gray-700 text-gray-300'
-                        : 'hover:bg-gray-100 text-gray-700'
-                    }`}
-                  >
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                  </button>
-                  
-                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                    let page;
-                    if (totalPages <= 5) {
-                      page = i + 1;
-                    } else if (currentPage <= 3) {
-                      page = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      page = totalPages - 4 + i;
-                    } else {
-                      page = currentPage - 2 + i;
-                    }
-                    
-                    return (
-                      <button
-                        key={page}
-                        onClick={() => setCurrentPage(page)}
-                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          page === currentPage
-                            ? 'bg-blue-600 text-white'
-                            : theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
-                        }`}
-                      >
-                        {page}
-                      </button>
-                    );
-                  })}
-                  
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                    disabled={currentPage === totalPages}
-                    className={`p-2 rounded-lg transition-colors ${
-                      currentPage === totalPages
-                        ? 'opacity-50 cursor-not-allowed'
-                        : theme === 'dark'
-                        ? 'hover:bg-gray-700 text-gray-300'
-                        : 'hover:bg-gray-100 text-gray-700'
-                    }`}
-                  >
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                </nav>
+              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-blue-300/80">
+                    第 <span className="font-medium text-blue-300">{currentPage}</span> 页，
+                    共 <span className="font-medium text-blue-300">{totalPages}</span> 页
+                  </p>
+                </div>
+                <div>
+                  <nav className="flex items-center space-x-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      const pageNum = i + 1;
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                            currentPage === pageNum
+                              ? 'bg-blue-600 text-white'
+                              : 'text-blue-300 hover:bg-blue-600/20'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </nav>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      
+
       {/* 任务详情侧拉抽屉 */}
       <TaskDetailSidebar 
         isOpen={isDetailSidebarOpen} 
         onClose={() => setIsDetailSidebarOpen(false)} 
         taskId={selectedTaskId}
       />
-    </Layout>
-  );
+  </div>
+    );
 }

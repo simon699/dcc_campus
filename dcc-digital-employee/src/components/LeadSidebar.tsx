@@ -401,11 +401,9 @@ export default function LeadSidebar({ isOpen, onClose, onAddLead, userName }: Le
                 <div className="grid grid-cols-5 gap-3">
                   {['H级', 'A级', 'B级', 'C级', 'N级'].map((option) => (
                     <label key={option} className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors ${level === option
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                      : theme === 'dark'
-                        ? 'border-gray-600 hover:border-gray-500 text-gray-300'
-                        : 'border-gray-300 hover:border-gray-400 text-gray-700'
-                      }`}>
+                      ? 'bg-blue-600 border-blue-500 text-white'
+                      : 'bg-gray-800 border-gray-600 text-gray-300 hover:bg-gray-700'
+                    }`}>
                       <input
                         type="radio"
                         name="level"
@@ -414,7 +412,7 @@ export default function LeadSidebar({ isOpen, onClose, onAddLead, userName }: Le
                         onChange={() => setLevel(option)}
                         className="sr-only"
                       />
-                      <span className="text-sm font-medium">{option}</span>
+                      {option}
                     </label>
                   ))}
                 </div>
@@ -430,8 +428,8 @@ export default function LeadSidebar({ isOpen, onClose, onAddLead, userName }: Le
                     <label key={option} className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors ${status === option
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
                       : theme === 'dark'
-                        ? 'border-gray-600 hover:border-gray-500 text-gray-300'
-                        : 'border-gray-300 hover:border-gray-400 text-gray-700'
+                        ? 'border-gray-600 hover:border-blue-400 text-gray-300 hover:text-blue-300'
+                        : 'border-gray-300 hover:border-blue-400 text-gray-700 hover:text-blue-600'
                       }`}>
                       <input
                         type="radio"
@@ -457,8 +455,8 @@ export default function LeadSidebar({ isOpen, onClose, onAddLead, userName }: Le
                     <label key={option} className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors ${source === option
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
                       : theme === 'dark'
-                        ? 'border-gray-600 hover:border-gray-500 text-gray-300'
-                        : 'border-gray-300 hover:border-gray-400 text-gray-700'
+                        ? 'border-gray-600 hover:border-blue-400 text-gray-300 hover:text-blue-300'
+                        : 'border-gray-300 hover:border-blue-400 text-gray-700 hover:text-blue-600'
                       }`}>
                       <input
                         type="radio"
@@ -474,13 +472,15 @@ export default function LeadSidebar({ isOpen, onClose, onAddLead, userName }: Le
                 </div>
               </div>
 
-              <div className={`p-4 rounded-lg ${theme === 'dark' ? 'bg-gray-800' : 'bg-gray-50'
+              <div className={`p-4 rounded-lg border ${theme === 'dark' 
+                ? 'bg-blue-900/10 border-blue-500/30' 
+                : 'bg-blue-50 border-blue-200'
                 }`}>
                 <div className="flex items-center">
                   <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                  <span className={`text-sm ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
                     }`}>
                     跟进人: <span className="font-medium">{userName}</span>
                   </span>

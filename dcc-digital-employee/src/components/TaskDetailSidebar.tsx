@@ -91,7 +91,7 @@ export default function TaskDetailSidebar({ isOpen, onClose, taskId }: TaskDetai
   if (!isOpen) return null;
 
   return (
-    <>
+    <div>
       {/* 遮罩层 */}
       <div 
         className="fixed inset-0 bg-black bg-opacity-50 z-[1003]" 
@@ -134,6 +134,7 @@ export default function TaskDetailSidebar({ isOpen, onClose, taskId }: TaskDetai
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
             </div>
           ) : taskDetail ? (
+            // 在现有基本信息基础上增加更多详情
             <div className="space-y-6">
               {/* 基本信息 */}
               <div>
@@ -238,7 +239,7 @@ export default function TaskDetailSidebar({ isOpen, onClose, taskId }: TaskDetai
                   </div>
                 </div>
               </div>
-
+              
               {/* 关联线索 */}
               <div>
                 <h3 className={`text-md font-medium mb-4 ${
@@ -302,11 +303,11 @@ export default function TaskDetailSidebar({ isOpen, onClose, taskId }: TaskDetai
             <div className={`text-center py-8 ${
               theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
             }`}>
-              暂无数据
+              暂无任务详情
             </div>
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
