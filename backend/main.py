@@ -88,8 +88,7 @@ app.include_router(organization_router, prefix="/api")
 app.include_router(products_router, prefix="/api")
 app.include_router(create_leads_router, prefix="/api")
 app.include_router(create_follows_router, prefix="/api")
-# 注册路由
-app.include_router(tasks_router, prefix="/api/tasks")
+app.include_router(tasks_router, prefix="/api")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
 import RobotWorkspaceCard from './RobotWorkspaceCard';
 import WorkflowVisualizer from './WorkflowVisualizer';
-import IntelligentRecommendation from './IntelligentRecommendation';
 import LeadsDataDashboard from './LeadsDataDashboard';
 import { useRouter } from 'next/navigation';
 
@@ -108,9 +107,6 @@ export default function IntelligentRobotWorkspace() {
 
   return (
     <div className="space-y-8">
-      {/* 智能推荐区域 */}
-      <IntelligentRecommendation robots={intelligentRobots} />
-      
       {/* 机器人工作台 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
         {intelligentRobots.map(robot => (

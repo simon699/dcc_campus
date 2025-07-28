@@ -11,27 +11,21 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/css/app/page.css",
-      "static/chunks/app/page.js"
-    ],
     "/robots/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/robots/page.js"
-    ],
-    "/robots/outbound-calls/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/robots/outbound-calls/page.js"
     ],
     "/leads/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/css/app/leads/page.css",
       "static/chunks/app/leads/page.js"
+    ],
+    "/robots/outbound-calls/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/robots/outbound-calls/page.js"
     ],
     "/tasks/page": [
       "static/chunks/webpack.js",

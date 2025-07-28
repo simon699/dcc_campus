@@ -1,7 +1,7 @@
 {
-  "/tasks/page": "app/tasks/page.js",
-  "/leads/page": "app/leads/page.js",
+  "/login/page": "app/login/page.js",
   "/robots/page": "app/robots/page.js",
+  "/leads/page": "app/leads/page.js",
   "/robots/outbound-calls/page": "app/robots/outbound-calls/page.js",
-  "/login/page": "app/login/page.js"
+  "/tasks/page": "app/tasks/page.js"
 }

@@ -181,7 +181,7 @@ async def create_task(request: CreateTaskRequest, token: str = Depends(verify_ac
 async def get_tasks(
     page: int = 1,
     page_size: int = 10,
-    status: Optional[int] = None,
+    status: Optional[str] = None,
     task_type: Optional[int] = None,
     token: str = Depends(verify_access_token)
 ):
@@ -190,7 +190,7 @@ async def get_tasks(
     
     - **page**: 页码（默认1）
     - **page_size**: 每页数量（默认10）
-    - **status**: 任务状态筛选（可选）：1=待执行，2=执行中，3=已完成，4=已取消
+    - **status**: 任务状态筛选（可选）：单个状态值如1，或多个状态值用逗号分隔如"1,2,4"
     - **task_type**: 任务类型筛选（可选）：1=通知类，2=触达类
     """
     try:
@@ -201,8 +201,15 @@ async def get_tasks(
         params = [organization_id]
         
         if status is not None:
-            where_conditions.append("t.status = %s")
-            params.append(status)
+            # 支持多个状态值，用逗号分隔
+            if ',' in status:
+                status_values = status.split(',')
+                status_placeholders = ','.join(['%s'] * len(status_values))
+                where_conditions.append(f"t.status IN ({status_placeholders})")
+                params.extend([int(s.strip()) for s in status_values])
+            else:
+                where_conditions.append("t.status = %s")
+                params.append(int(status))
         
         if task_type is not None:
             where_conditions.append("t.task_type = %s")
@@ -298,7 +305,7 @@ async def get_task_detail(task_id: int, token: str = Depends(verify_access_token
         
         # 获取关联的线索信息
         leads_query = """
-        SELECT c.id, c.client_name, c.phone, c.product, c.clues_status_text, c.client_level_text
+        SELECT c.id, c.client_name, c.phone, c.product, c.clues_status, c.client_level
         FROM task_leads tl
         JOIN clues c ON tl.lead_id = c.id
         WHERE tl.task_id = %s
@@ -421,5 +428,129 @@ async def update_task_status(request: UpdateTaskStatusRequest, token: str = Depe
                 "status": "error",
                 "code": 1999,
                 "message": f"更新任务状态失败：{str(e)}"
+            }
+        )
+
+@tasks_router.get("/stats",
+                 response_model=TaskResponse,
+                 summary="获取任务统计",
+                 description="获取任务统计数据，包括今日任务、逾期任务、总任务数等",
+                 tags=["任务管理"])
+async def get_task_stats(token: str = Depends(verify_access_token)):
+    """
+    获取任务统计数据
+    
+    返回数据包含：
+    - **todayTasks**: 今日任务数
+    - **overdueTasks**: 逾期任务数
+    - **totalTasks**: 总任务数
+    - **completedTasks**: 已完成任务数
+    - **statusDistribution**: 任务状态分布
+    - **typeDistribution**: 任务类型分布
+    """
+    try:
+        organization_id = token.get('organization_id', 'ORG001')
+        
+        # 获取今日任务数（创建时间在今天）
+        today = datetime.now().strftime('%Y-%m-%d')
+        today_tasks_query = """
+        SELECT COUNT(*) as count
+        FROM tasks
+        WHERE organization_id = %s AND DATE(create_time) = %s
+        """
+        today_tasks_result = execute_query(today_tasks_query, (organization_id, today))
+        today_tasks = today_tasks_result[0]['count'] if today_tasks_result else 0
+        
+        # 获取逾期任务数（执行时间已过但未完成）
+        overdue_tasks_query = """
+        SELECT COUNT(*) as count
+        FROM tasks
+        WHERE organization_id = %s AND execution_time < NOW() AND status IN (1, 2)
+        """
+        overdue_tasks_result = execute_query(overdue_tasks_query, (organization_id,))
+        overdue_tasks = overdue_tasks_result[0]['count'] if overdue_tasks_result else 0
+        
+        # 获取总任务数
+        total_tasks_query = """
+        SELECT COUNT(*) as count
+        FROM tasks
+        WHERE organization_id = %s
+        """
+        total_tasks_result = execute_query(total_tasks_query, (organization_id,))
+        total_tasks = total_tasks_result[0]['count'] if total_tasks_result else 0
+        
+        # 获取已完成任务数
+        completed_tasks_query = """
+        SELECT COUNT(*) as count
+        FROM tasks
+        WHERE organization_id = %s AND status = 3
+        """
+        completed_tasks_result = execute_query(completed_tasks_query, (organization_id,))
+        completed_tasks = completed_tasks_result[0]['count'] if completed_tasks_result else 0
+        
+        # 获取任务状态分布
+        status_distribution_query = """
+        SELECT 
+            CASE 
+                WHEN status = 1 THEN '未开始'
+                WHEN status = 2 THEN '执行中'
+                WHEN status = 3 THEN '已结束'
+                WHEN status = 4 THEN '已暂停'
+                ELSE '未知'
+            END as status_name,
+            COUNT(*) as count
+        FROM tasks
+        WHERE organization_id = %s
+        GROUP BY status
+        ORDER BY status
+        """
+        status_distribution_result = execute_query(status_distribution_query, (organization_id,))
+        status_distribution = [
+            {"name": item['status_name'], "value": item['count']}
+            for item in status_distribution_result
+        ]
+        
+        # 获取任务类型分布
+        type_distribution_query = """
+        SELECT 
+            CASE 
+                WHEN task_type = 1 THEN '通知类'
+                WHEN task_type = 2 THEN '触达类'
+                ELSE '未知'
+            END as type_name,
+            COUNT(*) as count
+        FROM tasks
+        WHERE organization_id = %s
+        GROUP BY task_type
+        ORDER BY task_type
+        """
+        type_distribution_result = execute_query(type_distribution_query, (organization_id,))
+        type_distribution = [
+            {"name": item['type_name'], "value": item['count']}
+            for item in type_distribution_result
+        ]
+        
+        return {
+            "status": "success",
+            "code": 0,
+            "message": "获取任务统计成功",
+            "data": {
+                "todayTasks": today_tasks,
+                "overdueTasks": overdue_tasks,
+                "totalTasks": total_tasks,
+                "completedTasks": completed_tasks,
+                "statusDistribution": status_distribution,
+                "typeDistribution": type_distribution
+            }
+        }
+        
+    except Exception as e:
+        print(f"Get task stats error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "code": 1999,
+                "message": f"获取任务统计失败：{str(e)}"
             }
         )

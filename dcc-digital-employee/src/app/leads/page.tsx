@@ -348,15 +348,97 @@ export default function LeadsPage() {
     if (hasUrlParams) {
       // 如果有URL参数，设置搜索条件并执行搜索
       setSearchParams(urlParams);
-      // 延迟执行搜索，确保searchParams已更新
-      setTimeout(() => {
-        fetchLeads();
-      }, 100);
+      // 立即执行搜索，使用解析的URL参数
+      const searchWithUrlParams = async () => {
+        try {
+          const accessToken = localStorage.getItem('access_token');
+          
+          const requestBody = {
+            page: 1,
+            page_size: pageSize,
+            clues_status: urlParams.status ? getStatusCode(urlParams.status) : undefined,
+            client_level: urlParams.level ? getLevelCode(urlParams.level) : undefined,
+            phone: urlParams.phone || undefined,
+            product: urlParams.product || undefined,
+            create_time_start: urlParams.createTimeStart ? formatDateToLocal(urlParams.createTimeStart) : undefined,
+            create_time_end: urlParams.createTimeEnd ? formatDateToLocal(urlParams.createTimeEnd, true) : undefined,
+            last_follow_time_start: urlParams.lastFollowTimeStart ? formatDateToLocal(urlParams.lastFollowTimeStart) : undefined,
+            last_follow_time_end: urlParams.lastFollowTimeEnd ? formatDateToLocal(urlParams.lastFollowTimeEnd, true) : undefined,
+            next_follow_time_start: urlParams.nextFollowTimeStart ? formatDateToLocal(urlParams.nextFollowTimeStart) : undefined,
+            next_follow_time_end: urlParams.nextFollowTimeEnd ? formatDateToLocal(urlParams.nextFollowTimeEnd, true) : undefined,
+            ai_call: urlParams.aiCall ? (urlParams.aiCall === 'true') : undefined,
+          };
+          
+          // 移除 undefined 值
+          Object.keys(requestBody).forEach(key => {
+            if ((requestBody as any)[key] === undefined) {
+              delete (requestBody as {[key: string]: any})[key];
+            }
+          });
+          
+          const response = await fetch('http://localhost:8000/api/leads/query_with_latest_follow', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'access-token': accessToken || '',
+            },
+            body: JSON.stringify(requestBody),
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data.data && Array.isArray(data.data.leads_with_follows)) {
+              const formattedLeads = data.data.leads_with_follows.map((item: any) => {
+                const lead = item.lead_info;
+                const follow = item.latest_follow;
+                
+                return {
+                  id: lead.id,
+                  name: lead.client_name,
+                  phone: lead.phone,
+                  source: lead.source,
+                  product: lead.product,
+                  status: lead.clues_status_text,
+                  level: lead.client_level_text,
+                  follower: follow ? follow.follower : (lead.create_name || '-'),
+                  lastFollowTime: follow ? follow.follow_time : '-',
+                  nextFollowTime: follow ? follow.next_follow_time : '-',
+                  aiCall: follow ? follow.follow_type === 2 : false,
+                  planVisitTime: follow ? follow.plan_visit_time : '-',
+                  createTime: lead.create_time,
+                  remark: follow ? follow.remark : '-',
+                  latest_follow_id: follow ? follow.follow_id : undefined,
+                  latest_follow_type: follow ? follow.follow_type : undefined,
+                  latest_follow_time: follow ? follow.follow_time : undefined,
+                  latest_follower: follow ? follow.follower : undefined,
+                  latest_next_follow_time: follow ? follow.next_follow_time : undefined,
+                  latest_plan_visit_time: follow ? follow.plan_visit_time : undefined,
+                  latest_follow_remark: follow ? follow.remark : undefined
+                };
+              });
+              
+              setLeads(formattedLeads);
+              setCurrentPage(1);
+              
+              if (data.data.pagination) {
+                setTotalPages(data.data.pagination.total_pages);
+              }
+            } else {
+              console.error('Invalid data format:', data);
+              setLeads([]);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching leads with URL params:', error);
+        }
+      };
+      
+      searchWithUrlParams();
     } else {
       // 如果没有URL参数，执行默认的无搜索条件查询
       fetchLeadsWithoutSearch();
     }
-  }, []); // 移除 parseUrlParams 依赖，只在组件挂载时执行一次
+  }, [urlSearchParams]); // 添加 urlSearchParams 依赖，当URL参数变化时重新执行
 
   // 只有当分页变化时重新获取数据（不包括搜索参数变化）
   useEffect(() => {

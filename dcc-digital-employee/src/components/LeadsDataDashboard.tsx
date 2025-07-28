@@ -40,7 +40,8 @@ export default function LeadsDataDashboard() {
       // 添加获取访问令牌
       const accessToken = localStorage.getItem('access_token');
       
-      const response = await fetch('http://localhost:8000/api/leads/query_with_latest_follow', {
+      // 调用线索等级统计接口
+      const levelStatsResponse = await fetch('http://localhost:8000/api/leads/level_stats', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -49,77 +50,124 @@ export default function LeadsDataDashboard() {
         body: JSON.stringify({})
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        const leads: Lead[] = data.leads || [];
+      if (levelStatsResponse.ok) {
+        const levelStatsData = await levelStatsResponse.json();
         
-        // 处理客户等级分布
-        const levelCounts = leads.reduce((acc, lead) => {
-          const level = lead.customer_level || 'N级';
-          acc[level] = (acc[level] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
-        
-        const levelColors = {
-          'H级': '#ef4444',
-          'A级': '#f97316', 
-          'B级': '#3b82f6',
-          'C级': '#10b981',
-          'N级': '#6b7280'
-        };
-        
-        const totalLeads = leads.length;
-        const levelDistribution = Object.entries(levelCounts).map(([level, count]) => ({
-          level,
-          count,
-          percentage: Math.round((count / totalLeads) * 100),
-          color: levelColors[level as keyof typeof levelColors] || '#6b7280'
-        }));
-        
-        // 处理近7日趋势（按创建时间统计）
-        const last7Days = Array.from({ length: 7 }, (_, i) => {
-          const date = new Date();
-          date.setDate(date.getDate() - (6 - i));
-          return date;
-        });
-        
-        const recentTrend = last7Days.map((date, index) => {
-          const dateStr = date.toISOString().split('T')[0];
-          const count = leads.filter(lead => {
-            const leadDate = new Date(lead.created_at).toISOString().split('T')[0];
-            return leadDate === dateStr;
-          }).length;
+        if (levelStatsData.status === 'success' && levelStatsData.data) {
+          const { level_stats } = levelStatsData.data;
           
-          return {
-            date: index === 6 ? '今日' : `${date.getMonth() + 1}-${date.getDate()}`,
-            value: count
+          const levelColors = {
+            'H级': '#ef4444',
+            'A级': '#f97316', 
+            'B级': '#3b82f6',
+            'C级': '#10b981',
+            'N级': '#6b7280',
+            'O级': '#8b5cf6',
+            'F级': '#f59e0b'
           };
-        });
-        
-        setLeadsData({
-          levelDistribution,
-          recentTrend
-        });
+          
+          // 处理等级分布数据
+          const levelDistribution = Object.entries(level_stats).map(([level, stats]: [string, any]) => ({
+            level,
+            count: stats.count,
+            percentage: Math.round(stats.percentage),
+            color: levelColors[level as keyof typeof levelColors] || '#6b7280'
+          }));
+          
+          
+          // 计算近7天的日期范围
+          const today = new Date();
+          const endDate = new Date(today);
+          const startDate = new Date(today);
+          startDate.setDate(today.getDate() - 6);
+          
+          const startDateStr = startDate.toISOString().split('T')[0];
+          const endDateStr = endDate.toISOString().split('T')[0];
+          
+          // 调用每日统计接口
+          const dailyStatsResponse = await fetch('http://localhost:8000/api/leads/daily_stats', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'access-token': accessToken || '', // 添加访问令牌到请求头
+            },
+            body: JSON.stringify({
+              start_date: startDateStr,
+              end_date: endDateStr
+            })
+          });
+          
+          let recentTrend = [];
+          if (dailyStatsResponse.ok) {
+            const dailyStatsData = await dailyStatsResponse.json();
+            
+            if (dailyStatsData.status === 'success' && dailyStatsData.data) {
+              const { daily_stats } = dailyStatsData.data;
+              
+              // 处理每日统计数据
+              recentTrend = daily_stats.map((dayStat: any, index: number) => {
+                const date = new Date(dayStat.date);
+                const isToday = date.toDateString() === today.toDateString();
+                const isYesterday = date.toDateString() === new Date(today.getTime() - 24 * 60 * 60 * 1000).toDateString();
+                
+                // 格式化日期显示
+                let dateLabel;
+                if (isToday) {
+                  dateLabel = '今日';
+                } else if (isYesterday) {
+                  dateLabel = '昨日';
+                } else {
+                  const month = date.getMonth() + 1;
+                  const day = date.getDate();
+                  dateLabel = `${month}-${day}`;
+                }
+                
+                return {
+                  date: dateLabel,
+                  value: dayStat.count
+                };
+              });
+              
+              console.log('近7日趋势数据:', recentTrend);
+            } else {
+              throw new Error(dailyStatsData.message || '获取每日统计数据失败');
+            }
+          } else {
+            // 使用模拟趋势数据
+            const last7Days = Array.from({ length: 7 }, (_, i) => {
+              const date = new Date(today);
+              date.setDate(today.getDate() - (6 - i));
+              return date;
+            });
+            
+            recentTrend = last7Days.map((date, index) => {
+              let dateLabel;
+              if (index === 6) {
+                dateLabel = '今日';
+              } else if (index === 5) {
+                dateLabel = '昨日';
+              } else {
+                const month = date.getMonth() + 1;
+                const day = date.getDate();
+                dateLabel = `${month}-${day}`;
+              }
+              
+              return {
+                date: dateLabel,
+                value: Math.floor(Math.random() * 30) + 20 // 20-50之间的随机数
+              };
+            });
+          }
+          
+          setLeadsData({
+            levelDistribution,
+            recentTrend
+          });
+        } else {
+          throw new Error(levelStatsData.message || '获取等级统计数据失败');
+        }
       } else {
-        // 使用模拟数据作为备选
-        setLeadsData({
-          levelDistribution: [
-            { level: 'H级', count: 156, percentage: 35, color: '#ef4444' },
-            { level: 'A级', count: 234, percentage: 28, color: '#f97316' },
-            { level: 'B级', count: 189, percentage: 22, color: '#3b82f6' },
-            { level: 'C级', count: 98, percentage: 12, color: '#10b981' },
-            { level: 'N级', count: 45, percentage: 3, color: '#6b7280' }
-          ],
-          recentTrend: [
-            { date: '01-10', value: 45 },
-            { date: '01-11', value: 52 },
-            { date: '01-12', value: 38 },
-            { date: '01-13', value: 61 },
-            { date: '01-14', value: 45 },
-            { date: '01-15', value: 58 },
-            { date: '今日', value: 45 }
-          ]
-        });
+        throw new Error('等级统计接口请求失败');
       }
     } catch (error) {
       console.error('获取线索数据失败:', error);
@@ -130,17 +178,36 @@ export default function LeadsDataDashboard() {
           { level: 'A级', count: 234, percentage: 28, color: '#f97316' },
           { level: 'B级', count: 189, percentage: 22, color: '#3b82f6' },
           { level: 'C级', count: 98, percentage: 12, color: '#10b981' },
-          { level: 'N级', count: 45, percentage: 3, color: '#6b7280' }
+          { level: 'N级', count: 45, percentage: 3, color: '#6b7280' },
+          { level: 'O级', count: 25, percentage: 2, color: '#8b5cf6' },
+          { level: 'F级', count: 15, percentage: 1, color: '#f59e0b' }
         ],
-        recentTrend: [
-          { date: '01-10', value: 45 },
-          { date: '01-11', value: 52 },
-          { date: '01-12', value: 38 },
-          { date: '01-13', value: 61 },
-          { date: '01-14', value: 45 },
-          { date: '01-15', value: 58 },
-          { date: '今日', value: 45 }
-        ]
+        recentTrend: (() => {
+          const today = new Date();
+          const last7Days = Array.from({ length: 7 }, (_, i) => {
+            const date = new Date(today);
+            date.setDate(today.getDate() - (6 - i));
+            return date;
+          });
+          
+          return last7Days.map((date, index) => {
+            let dateLabel;
+            if (index === 6) {
+              dateLabel = '今日';
+            } else if (index === 5) {
+              dateLabel = '昨日';
+            } else {
+              const month = date.getMonth() + 1;
+              const day = date.getDate();
+              dateLabel = `${month}-${day}`;
+            }
+            
+            return {
+              date: dateLabel,
+              value: Math.floor(Math.random() * 30) + 20 // 20-50之间的随机数
+            };
+          });
+        })()
       });
     } finally {
       setLoading(false);

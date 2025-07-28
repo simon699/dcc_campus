@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import TaskDetailModal from './TaskDetailModal';
 
 interface Task {
   id: number;
@@ -16,6 +17,24 @@ interface Task {
   estimatedCompletion: string;
   priority: 'high' | 'medium' | 'low';
   type: 'marketing' | 'followup' | 'survey' | 'reminder';
+  description: string;
+  callScriptScene: string;
+  maxRetries: number;
+  callInterval: number;
+  customerConditions: {
+    customerLevels: string[];
+    lastFollowUpDays: string;
+    remarkKeywords: string;
+  };
+  timeSettings: {
+    startDate: string;
+    endDate: string;
+    workingHours: {
+      start: string;
+      end: string;
+    };
+    workingDays: string[];
+  };
 }
 
 interface OutboundCallTaskDashboardProps {
@@ -33,6 +52,7 @@ export default function OutboundCallTaskDashboard({ showHistory = false }: Outbo
     avgCallDuration: '2:34'
   });
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [showTaskDetail, setShowTaskDetail] = useState(false);
   const router = useRouter();
 
   // 模拟数据
@@ -50,7 +70,25 @@ export default function OutboundCallTaskDashboard({ showHistory = false }: Outbo
         scheduledAt: '2024-01-15 09:30',
         estimatedCompletion: '2024-01-15 17:30',
         priority: 'high',
-        type: 'marketing'
+        type: 'marketing',
+        description: '针对新客户进行产品介绍和需求挖掘，提高客户转化率',
+        callScriptScene: 'new_customer_intro',
+        maxRetries: 3,
+        callInterval: 30,
+        customerConditions: {
+          customerLevels: ['N', 'C'],
+          lastFollowUpDays: '30',
+          remarkKeywords: '感兴趣,有意向'
+        },
+        timeSettings: {
+          startDate: '2024-01-15',
+          endDate: '2024-01-20',
+          workingHours: {
+            start: '09:00',
+            end: '18:00'
+          },
+          workingDays: ['1', '2', '3', '4', '5']
+        }
       },
       {
         id: 2,
@@ -64,7 +102,25 @@ export default function OutboundCallTaskDashboard({ showHistory = false }: Outbo
         scheduledAt: '2024-01-15 14:00',
         estimatedCompletion: '2024-01-15 18:00',
         priority: 'medium',
-        type: 'survey'
+        type: 'survey',
+        description: '对现有客户进行满意度调研，收集客户反馈和建议',
+        callScriptScene: 'satisfaction_survey',
+        maxRetries: 2,
+        callInterval: 45,
+        customerConditions: {
+          customerLevels: ['H', 'A', 'B'],
+          lastFollowUpDays: '60',
+          remarkKeywords: '活跃客户,重要客户'
+        },
+        timeSettings: {
+          startDate: '2024-01-16',
+          endDate: '2024-01-25',
+          workingHours: {
+            start: '10:00',
+            end: '17:00'
+          },
+          workingDays: ['1', '2', '3', '4', '5']
+        }
       },
       {
         id: 3,
@@ -78,7 +134,25 @@ export default function OutboundCallTaskDashboard({ showHistory = false }: Outbo
         scheduledAt: '2024-01-14 09:00',
         estimatedCompletion: '2024-01-14 16:00',
         priority: 'medium',
-        type: 'followup'
+        type: 'followup',
+        description: '对老客户进行定期回访，维护客户关系，了解最新需求',
+        callScriptScene: 'customer_followup',
+        maxRetries: 3,
+        callInterval: 30,
+        customerConditions: {
+          customerLevels: ['H', 'A'],
+          lastFollowUpDays: '90',
+          remarkKeywords: '老客户,重要客户'
+        },
+        timeSettings: {
+          startDate: '2024-01-14',
+          endDate: '2024-01-19',
+          workingHours: {
+            start: '09:00',
+            end: '18:00'
+          },
+          workingDays: ['1', '2', '3', '4', '5']
+        }
       }
     ];
 
@@ -167,7 +241,10 @@ export default function OutboundCallTaskDashboard({ showHistory = false }: Outbo
                 <div 
                   key={task.id}
                   className="bg-gray-800/50 rounded-xl p-6 border border-gray-700/50 hover:border-gray-600/50 transition-all duration-300 cursor-pointer"
-                  onClick={() => setSelectedTask(task)}
+                  onClick={() => {
+                    setSelectedTask(task);
+                    setShowTaskDetail(true);
+                  }}
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center space-x-4">
@@ -226,6 +303,17 @@ export default function OutboundCallTaskDashboard({ showHistory = false }: Outbo
           </div>
         </div>
       </div>
+
+      {/* 任务详情模态框 */}
+      {showTaskDetail && (
+        <TaskDetailModal 
+          task={selectedTask}
+          onClose={() => {
+            setShowTaskDetail(false);
+            setSelectedTask(null);
+          }}
+        />
+      )}
     </div>
   );
 }

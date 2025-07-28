@@ -48,15 +48,16 @@ interface LeadDetailSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   leadId: number | null;
+  showAddFollowForm?: boolean; // 新增参数，控制是否显示添加跟进表单
 }
 
-export default function LeadDetailSidebar({ isOpen, onClose, leadId }: LeadDetailSidebarProps) {
+export default function LeadDetailSidebar({ isOpen, onClose, leadId, showAddFollowForm: initialShowAddFollowForm = false }: LeadDetailSidebarProps) {
   const { theme } = useTheme();
   const [leadDetail, setLeadDetail] = useState<LeadDetail | null>(null);
   const [followRecords, setFollowRecords] = useState<FollowRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isAddingFollow, setIsAddingFollow] = useState(false);
-  const [showAddFollowForm, setShowAddFollowForm] = useState(false);
+  const [showAddFollowForm, setShowAddFollowForm] = useState(initialShowAddFollowForm);
   const [products, setProducts] = useState<ProductNode[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   
@@ -86,6 +87,11 @@ export default function LeadDetailSidebar({ isOpen, onClose, leadId }: LeadDetai
       document.body.style.overflow = 'unset';
     };
   }, [isOpen, leadId]);
+
+  // 当showAddFollowForm参数变化时，更新内部状态
+  useEffect(() => {
+    setShowAddFollowForm(initialShowAddFollowForm);
+  }, [initialShowAddFollowForm]);
 
   // 获取线索详情
   const fetchLeadDetail = async () => {
@@ -294,12 +300,12 @@ export default function LeadDetailSidebar({ isOpen, onClose, leadId }: LeadDetai
   return (
     <>
       <div
-        className="fixed inset-0 bg-black/50 z-40 animate-fade-in"
+        className="fixed inset-0 bg-black/50 z-[1005] animate-fade-in"
         onClick={handleClose}
       ></div>
 
       <div
-        className={`fixed top-0 right-0 h-full w-full sm:w-[1000px] lg:w-[1200px] border-l z-50 overflow-y-auto animate-slide-down ${
+        className={`fixed top-0 right-0 h-full w-full sm:w-[1000px] lg:w-[1200px] border-l z-[1006] overflow-y-auto animate-slide-down ${
           theme === 'dark'
             ? 'bg-gray-900 border-gray-700'
             : 'bg-white border-gray-200'

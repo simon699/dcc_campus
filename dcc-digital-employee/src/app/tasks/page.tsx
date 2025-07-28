@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useSearchParams } from 'next/navigation';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import TaskDetailSidebar from '../../components/TaskDetailSidebar';
@@ -23,6 +24,7 @@ interface Task {
 
 export default function TasksPage() {
   const { theme } = useTheme();
+  const searchParamsFromURL = useSearchParams();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -30,6 +32,7 @@ export default function TasksPage() {
   const [selectedTasks, setSelectedTasks] = useState<number[]>([]);
   const [isDetailSidebarOpen, setIsDetailSidebarOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   
   // 搜索条件
   const [searchParams, setSearchParams] = useState({
@@ -38,7 +41,7 @@ export default function TasksPage() {
     executionTimeStart: null as Date | null,
     executionTimeEnd: null as Date | null,
     taskName: '',
-    status: '',
+    status: [] as string[], // 改为数组支持多选
     taskType: '',
     taskMode: '',
   });
@@ -62,6 +65,16 @@ export default function TasksPage() {
       '已暂停': 4,
     };
     return statusMap[status] ?? 1;
+  };
+
+  const getStatusCodes = (statuses: string[]): number[] => {
+    const statusMap: { [key: string]: number } = {
+      '未开始': 1,
+      '执行中': 2,
+      '已结束': 3,
+      '已暂停': 4,
+    };
+    return statuses.map(status => statusMap[status] ?? 1);
   };
 
   const getTaskModeText = (mode: number): string => {
@@ -109,14 +122,17 @@ export default function TasksPage() {
         page_size: pageSize.toString(),
       });
       
-      if (searchParams.status) {
-        queryParams.append('status', getStatusCode(searchParams.status).toString());
+      if (searchParams.status && searchParams.status.length > 0) {
+        // 使用搜索条件中的状态
+        const statusCodes = getStatusCodes(searchParams.status);
+        queryParams.append('status', statusCodes.join(','));
+        console.log('添加状态筛选参数:', statusCodes.join(','));
       }
       if (searchParams.taskType) {
         queryParams.append('task_type', searchParams.taskType === '通知类' ? '1' : '2');
       }
       
-      const response = await fetch(`http://localhost:8000/api/tasks/tasks?${queryParams}`, {
+      const response = await fetch(`http://localhost:8000/api/tasks?${queryParams}`, {
         method: 'GET',
         headers: {
           'access-token': accessToken || '',
@@ -150,7 +166,7 @@ export default function TasksPage() {
         page_size: pageSize.toString(),
       });
       
-      const response = await fetch(`http://localhost:8000/api/tasks/tasks?${queryParams}`, {
+      const response = await fetch(`http://localhost:8000/api/tasks?${queryParams}`, {
         method: 'GET',
         headers: {
           'access-token': accessToken || '',
@@ -175,15 +191,71 @@ export default function TasksPage() {
     }
   }, [pageSize]);
 
+  // 处理URL参数
   useEffect(() => {
-    fetchTasksWithoutSearch();
-  }, []);
+    const statusFromURL = searchParamsFromURL.get('status');
+    console.log('URL参数处理 - statusFromURL:', statusFromURL);
+    
+    if (statusFromURL) {
+      // 如果URL中有状态参数，设置搜索条件
+      // 支持多个状态值，用逗号分隔
+      const statusValues = statusFromURL.split(',');
+      const statusMap: { [key: string]: string } = {
+        '1': '未开始',
+        '2': '执行中',
+        '4': '已暂停'
+      };
+      
+      // 将状态值转换为对应的文本
+      const statusTexts = statusValues.map(status => statusMap[status] || '').filter(text => text);
+      console.log('转换后的状态文本:', statusTexts);
+      
+      setSearchParams(prev => ({
+        ...prev,
+        status: statusTexts
+      }));
+    } else {
+      // 如果没有URL参数，正常初始化
+      console.log('没有URL参数，执行正常初始化');
+      fetchTasksWithoutSearch();
+    }
+  }, [searchParamsFromURL]);
+
+  // 当searchParams状态变化时执行搜索
+  useEffect(() => {
+    // 如果有URL参数且searchParams已经设置，执行搜索
+    const statusFromURL = searchParamsFromURL.get('status');
+    console.log('searchParams状态变化 - statusFromURL:', statusFromURL, 'searchParams.status:', searchParams.status);
+    
+    if (statusFromURL && searchParams.status.length > 0) {
+      console.log('执行搜索操作');
+      setCurrentPage(1);
+      fetchTasks();
+    }
+  }, [searchParams.status, searchParamsFromURL]);
 
   useEffect(() => {
     if (currentPage > 1) {
       fetchTasks();
     }
   }, [currentPage]);
+
+  // 点击外部关闭状态下拉框
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (statusDropdownOpen) {
+        setStatusDropdownOpen(false);
+      }
+    };
+
+    if (statusDropdownOpen) {
+      document.addEventListener('click', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [statusDropdownOpen]);
 
   // 处理搜索条件变化
   const handleSearchChange = (field: string, value: any) => {
@@ -201,7 +273,7 @@ export default function TasksPage() {
       executionTimeStart: null,
       executionTimeEnd: null,
       taskName: '',
-      status: '',
+      status: [],
       taskType: '',
       taskMode: '',
     });
@@ -377,17 +449,66 @@ export default function TasksPage() {
               <label className="block text-sm font-medium mb-2 text-blue-300/90">
                 任务状态
               </label>
-              <select
-                value={searchParams.status}
-                onChange={(e) => handleSearchChange('status', e.target.value)}
-                className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40"
-              >
-                <option value="">全部</option>
-                <option value="未开始">未开始</option>
-                <option value="执行中">执行中</option>
-                <option value="已结束">已结束</option>
-                <option value="已暂停">已暂停</option>
-              </select>
+              <div className="relative">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setStatusDropdownOpen(!statusDropdownOpen);
+                  }}
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-blue-500/30 rounded-lg text-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50 transition-all duration-300 hover:border-blue-400/40 cursor-pointer flex items-center justify-between"
+                >
+                  <span className={searchParams.status.length > 0 ? 'text-blue-100' : 'text-blue-400/50'}>
+                    {searchParams.status.length > 0 
+                      ? searchParams.status.join(', ') 
+                      : '请选择任务状态'
+                    }
+                  </span>
+                  <svg 
+                    className={`w-4 h-4 transition-transform duration-200 ${statusDropdownOpen ? 'rotate-180' : ''}`} 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                
+                {statusDropdownOpen && (
+                  <div 
+                    className="absolute z-50 w-full mt-1 bg-slate-800/95 border border-blue-500/30 rounded-lg shadow-xl backdrop-blur-sm"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {[
+                      { value: '未开始', label: '未开始' },
+                      { value: '执行中', label: '执行中' },
+                      { value: '已结束', label: '已结束' },
+                      { value: '已暂停', label: '已暂停' }
+                    ].map((option) => (
+                      <label key={option.value} className="flex items-center space-x-3 px-3 py-2 hover:bg-blue-500/20 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={searchParams.status.includes(option.value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSearchParams(prev => ({
+                                ...prev,
+                                status: [...prev.status, option.value]
+                              }));
+                            } else {
+                              setSearchParams(prev => ({
+                                ...prev,
+                                status: prev.status.filter(s => s !== option.value)
+                              }));
+                            }
+                          }}
+                          className="rounded bg-slate-700/50 border-blue-500/30 text-blue-400 focus:ring-blue-500/50"
+                        />
+                        <span className="text-sm text-blue-200">{option.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* 任务类型 */}

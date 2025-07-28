@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Union, List
 from datetime import datetime
 from database.db import execute_update, execute_query
 from .auth import verify_access_token
@@ -33,8 +33,8 @@ class LeadResponse(BaseModel):
 
 class LeadQueryRequest(BaseModel):
     organization_id: Optional[str] = Field(None, description="组织ID筛选", example="ORG001")
-    clues_status: Optional[int] = Field(None, description="线索状态筛选：0=已战败，1=未跟进，2=跟进中，3=已成单", example=1)
-    client_level: Optional[int] = Field(None, description="客户等级筛选：1=H级，2=A级，3=B级，4=C级，5=N级，6=O级，7=F级", example=5)
+    clues_status: Optional[Union[int, List[int]]] = Field(None, description="线索状态筛选：0=已战败，1=未跟进，2=跟进中，3=已成单", example=1)
+    client_level: Optional[Union[int, List[int]]] = Field(None, description="客户等级筛选：1=H级，2=A级，3=B级，4=C级，5=N级，6=O级，7=F级", example=5)
     page: Optional[int] = Field(1, description="页码", example=1)
     page_size: Optional[int] = Field(10, description="每页数量", example=10)
     
@@ -48,6 +48,33 @@ class LeadQueryRequest(BaseModel):
     next_follow_time_start: Optional[str] = Field(None, description="下次跟进时间开始（YYYY-MM-DD）", example="2024-01-01")
     next_follow_time_end: Optional[str] = Field(None, description="下次跟进时间结束（YYYY-MM-DD）", example="2024-12-31")
     ai_call: Optional[bool] = Field(None, description="是否AI外呼筛选", example=True)
+
+class LeadLevelStatsRequest(BaseModel):
+    clues_status: Optional[Union[int, List[int]]] = Field(None, description="线索状态筛选：0=已战败，1=未跟进，2=跟进中，3=已成单", example=1)
+    create_time_start: Optional[str] = Field(None, description="创建时间开始（YYYY-MM-DD）", example="2024-01-01")
+    create_time_end: Optional[str] = Field(None, description="创建时间结束（YYYY-MM-DD）", example="2024-12-31")
+    last_follow_time_start: Optional[str] = Field(None, description="最新跟进时间开始（YYYY-MM-DD）", example="2024-01-01")
+    last_follow_time_end: Optional[str] = Field(None, description="最新跟进时间结束（YYYY-MM-DD）", example="2024-12-31")
+    next_follow_time_start: Optional[str] = Field(None, description="下次跟进时间开始（YYYY-MM-DD）", example="2024-01-01")
+    next_follow_time_end: Optional[str] = Field(None, description="下次跟进时间结束（YYYY-MM-DD）", example="2024-12-31")
+    ai_call: Optional[bool] = Field(None, description="是否AI外呼筛选", example=True)
+
+class LeadLevelStatsResponse(BaseModel):
+    status: str
+    code: int
+    message: str
+    data: Optional[dict] = None
+
+class DailyLeadsStatsRequest(BaseModel):
+    start_date: str = Field(..., description="开始日期（YYYY-MM-DD）", example="2024-01-01")
+    end_date: str = Field(..., description="结束日期（YYYY-MM-DD）", example="2024-01-07")
+    clues_status: Optional[Union[int, List[int]]] = Field(None, description="线索状态筛选：0=已战败，1=未跟进，2=跟进中，3=已成单", example=1)
+
+class DailyLeadsStatsResponse(BaseModel):
+    status: str
+    code: int
+    message: str
+    data: Optional[dict] = None
 
 @create_leads_router.get("/test_db", tags=["线索管理"])
 async def test_database_connection():
@@ -527,6 +554,22 @@ async def query_leads(request: LeadQueryRequest, token: str = Depends(verify_acc
                          tags=["线索管理"])
 async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str = Depends(verify_access_token)):
     try:
+        # 从token中获取organization_id
+        import jwt
+        import os
+        from datetime import datetime
+        
+        # 解析token获取organization_id
+        try:
+            payload = jwt.decode(token, os.getenv('JWT_SECRET', 'your-secret-key'), algorithms=['HS256'])
+            organization_id = payload.get('organization_id')
+        except:
+            organization_id = None
+        
+        # 调试信息
+        print(f"查询参数: {request}")
+        print(f"Organization ID: {organization_id}")
+        
         # 构建查询条件 - 修复字段名并添加新字段
         base_query = '''
         SELECT c.*,
@@ -577,20 +620,41 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
         '''
         params = []
         
-        if request.organization_id:
+        # 使用从token中获取的organization_id
+        if organization_id:
+            base_query += " AND c.organization_id = %s"
+            count_query += " AND c.organization_id = %s"
+            params.append(organization_id)
+        elif request.organization_id:
             base_query += " AND c.organization_id = %s"
             count_query += " AND c.organization_id = %s"
             params.append(request.organization_id)
         
         if request.clues_status is not None:
-            base_query += " AND c.clues_status = %s"
-            count_query += " AND c.clues_status = %s"
-            params.append(request.clues_status)
+            if isinstance(request.clues_status, list):
+                # 如果是数组，使用 IN 查询
+                placeholders = ','.join(['%s'] * len(request.clues_status))
+                base_query += f" AND (COALESCE(f.clues_status, c.clues_status) IN ({placeholders}))"
+                count_query += f" AND (COALESCE(f.clues_status, c.clues_status) IN ({placeholders}))"
+                params.extend(request.clues_status)
+            else:
+                # 如果是单个值，使用 = 查询
+                base_query += " AND (COALESCE(f.clues_status, c.clues_status) = %s)"
+                count_query += " AND (COALESCE(f.clues_status, c.clues_status) = %s)"
+                params.append(request.clues_status)
         
         if request.client_level is not None:
-            base_query += " AND c.client_level = %s"
-            count_query += " AND c.client_level = %s"
-            params.append(request.client_level)
+            if isinstance(request.client_level, list):
+                # 如果是数组，使用 IN 查询
+                placeholders = ','.join(['%s'] * len(request.client_level))
+                base_query += f" AND (COALESCE(f.client_level, c.client_level) IN ({placeholders}))"
+                count_query += f" AND (COALESCE(f.client_level, c.client_level) IN ({placeholders}))"
+                params.extend(request.client_level)
+            else:
+                # 如果是单个值，使用 = 查询
+                base_query += " AND (COALESCE(f.client_level, c.client_level) = %s)"
+                count_query += " AND (COALESCE(f.client_level, c.client_level) = %s)"
+                params.append(request.client_level)
         
         # 添加新的搜索条件
         if request.phone:
@@ -604,33 +668,33 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
             params.extend([f"%{request.product}%", f"%{request.product}%", f"%{request.product}%"])
         
         if request.create_time_start:
-            base_query += " AND DATE(c.create_time) >= %s"
-            count_query += " AND DATE(c.create_time) >= %s"
+            base_query += " AND c.create_time >= %s"
+            count_query += " AND c.create_time >= %s"
             params.append(request.create_time_start)
         
         if request.create_time_end:
-            base_query += " AND DATE(c.create_time) <= %s"
-            count_query += " AND DATE(c.create_time) <= %s"
+            base_query += " AND c.create_time <= %s"
+            count_query += " AND c.create_time <= %s"
             params.append(request.create_time_end)
         
         if request.last_follow_time_start:
-            base_query += " AND DATE(f.follow_time) >= %s"
-            count_query += " AND DATE(f.follow_time) >= %s"
+            base_query += " AND f.follow_time >= %s"
+            count_query += " AND f.follow_time >= %s"
             params.append(request.last_follow_time_start)
         
         if request.last_follow_time_end:
-            base_query += " AND DATE(f.follow_time) <= %s"
-            count_query += " AND DATE(f.follow_time) <= %s"
+            base_query += " AND f.follow_time <= %s"
+            count_query += " AND f.follow_time <= %s"
             params.append(request.last_follow_time_end)
         
         if request.next_follow_time_start:
-            base_query += " AND DATE(f.next_follow_time) >= %s"
-            count_query += " AND DATE(f.next_follow_time) >= %s"
+            base_query += " AND f.next_follow_time >= %s"
+            count_query += " AND f.next_follow_time >= %s"
             params.append(request.next_follow_time_start)
         
         if request.next_follow_time_end:
-            base_query += " AND DATE(f.next_follow_time) <= %s"
-            count_query += " AND DATE(f.next_follow_time) <= %s"
+            base_query += " AND f.next_follow_time <= %s"
+            count_query += " AND f.next_follow_time <= %s"
             params.append(request.next_follow_time_end)
         
         if request.ai_call is not None:
@@ -641,12 +705,19 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
                 base_query += " AND (f.follow_type != 2 OR f.follow_type IS NULL)"
                 count_query += " AND (f.follow_type != 2 OR f.follow_type IS NULL)"
         
+        # 调试信息
+        print(f"Count Query: {count_query}")
+        print(f"Count Params: {params}")
+        
         # 获取总数
         total_result = execute_query(count_query, params)
         total_count = total_result[0]['total'] if total_result else 0
         
+        print(f"Total Count Result: {total_result}")
+        print(f"Total Count: {total_count}")
+        
         # 添加排序和分页
-        base_query += " ORDER BY create_time DESC"
+        base_query += " ORDER BY c.create_time DESC"
         
         # 计算偏移量
         offset = (request.page - 1) * request.page_size
@@ -769,3 +840,293 @@ async def get_product_hierarchy(product_id: int):
             break
     
     return hierarchy
+
+@create_leads_router.post("/leads/level_stats",
+                         response_model=LeadLevelStatsResponse,
+                         summary="查询客户等级统计",
+                         description="统计各个客户等级的数量情况，支持按状态、时间等条件筛选。organization_id 会自动从 access-token 中获取。优先使用最新跟进记录中的客户等级。需要在请求头中提供access-token进行身份验证。",
+                         tags=["线索管理"])
+async def get_lead_level_stats(request: LeadLevelStatsRequest, token: str = Depends(verify_access_token)):
+    """
+    查询客户等级统计
+    
+    支持的筛选条件：
+    - **clues_status**: 线索状态 (0=已战败，1=未跟进，2=跟进中，3=已成单)
+    - **create_time_start/end**: 创建时间范围
+    - **last_follow_time_start/end**: 最新跟进时间范围
+    - **next_follow_time_start/end**: 下次跟进时间范围
+    - **ai_call**: 是否AI外呼筛选
+    
+    注意：organization_id 会自动从 access-token 中获取，确保用户只能查看自己组织的数据。
+    
+    返回各个客户等级的统计数量：
+    - H级 (1)
+    - A级 (2)
+    - B级 (3)
+    - C级 (4)
+    - N级 (5)
+    - O级 (6)
+    - F级 (7)
+    """
+    try:
+        # 构建统计查询
+        stats_query = '''
+        SELECT 
+            CASE 
+                WHEN f.client_level IS NOT NULL THEN f.client_level
+                ELSE c.client_level
+            END as final_client_level,
+            COUNT(*) as count
+        FROM clues c
+        LEFT JOIN (
+            SELECT f1.*
+            FROM follows f1
+            INNER JOIN (
+                SELECT clues_id, MAX(follow_time) as max_follow_time
+                FROM follows
+                GROUP BY clues_id
+            ) f2 ON f1.clues_id = f2.clues_id AND f1.follow_time = f2.max_follow_time
+        ) f ON c.id = f.clues_id
+        WHERE 1=1
+        '''
+        
+        params = []
+        
+        # 从token中获取organization_id
+        organization_id = token.get("organization_id")
+        if organization_id:
+            stats_query += " AND c.organization_id = %s"
+            params.append(organization_id)
+        
+        if request.clues_status is not None:
+            stats_query += " AND c.clues_status = %s"
+            params.append(request.clues_status)
+        
+        if request.create_time_start:
+            stats_query += " AND DATE(c.create_time) >= %s"
+            params.append(request.create_time_start)
+        
+        if request.create_time_end:
+            stats_query += " AND DATE(c.create_time) <= %s"
+            params.append(request.create_time_end)
+        
+        if request.last_follow_time_start:
+            stats_query += " AND DATE(f.follow_time) >= %s"
+            params.append(request.last_follow_time_start)
+        
+        if request.last_follow_time_end:
+            stats_query += " AND DATE(f.follow_time) <= %s"
+            params.append(request.last_follow_time_end)
+        
+        if request.next_follow_time_start:
+            stats_query += " AND DATE(f.next_follow_time) >= %s"
+            params.append(request.next_follow_time_start)
+        
+        if request.next_follow_time_end:
+            stats_query += " AND DATE(f.next_follow_time) <= %s"
+            params.append(request.next_follow_time_end)
+        
+        if request.ai_call is not None:
+            if request.ai_call:
+                stats_query += " AND f.follow_type = 2"
+            else:
+                stats_query += " AND (f.follow_type != 2 OR f.follow_type IS NULL)"
+        
+        stats_query += " GROUP BY final_client_level ORDER BY final_client_level"
+        
+        # 执行统计查询
+        stats_result = execute_query(stats_query, params)
+        
+        # 初始化所有等级的统计
+        level_stats = {
+            "H级": {"level": 1, "count": 0, "percentage": 0},
+            "A级": {"level": 2, "count": 0, "percentage": 0},
+            "B级": {"level": 3, "count": 0, "percentage": 0},
+            "C级": {"level": 4, "count": 0, "percentage": 0},
+            "N级": {"level": 5, "count": 0, "percentage": 0},
+            "O级": {"level": 6, "count": 0, "percentage": 0},
+            "F级": {"level": 7, "count": 0, "percentage": 0}
+        }
+        
+        # 计算总数
+        total_count = 0
+        for row in stats_result:
+            level = row["final_client_level"]
+            count = row["count"]
+            total_count += count
+            
+            # 根据等级设置对应的统计
+            if level == 1:
+                level_stats["H级"]["count"] = count
+            elif level == 2:
+                level_stats["A级"]["count"] = count
+            elif level == 3:
+                level_stats["B级"]["count"] = count
+            elif level == 4:
+                level_stats["C级"]["count"] = count
+            elif level == 5:
+                level_stats["N级"]["count"] = count
+            elif level == 6:
+                level_stats["O级"]["count"] = count
+            elif level == 7:
+                level_stats["F级"]["count"] = count
+        
+        # 计算百分比
+        if total_count > 0:
+            for level_name, stats in level_stats.items():
+                stats["percentage"] = round((stats["count"] / total_count) * 100, 2)
+        
+        # 构建返回数据
+        stats_data = {
+            "total_count": total_count,
+            "level_stats": level_stats,
+            "summary": {
+                "high_value_count": level_stats["H级"]["count"] + level_stats["A级"]["count"] + level_stats["B级"]["count"],
+                "medium_value_count": level_stats["C级"]["count"] + level_stats["N级"]["count"],
+                "low_value_count": level_stats["O级"]["count"] + level_stats["F级"]["count"]
+            }
+        }
+        
+        return LeadLevelStatsResponse(
+            status="success",
+            code=1000,
+            message=f"统计完成，共找到 {total_count} 条线索",
+            data=stats_data
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "code": 1002,
+                "message": f"统计客户等级失败：{str(e)}"
+            }
+        )
+
+@create_leads_router.post("/leads/daily_stats",
+                         response_model=DailyLeadsStatsResponse,
+                         summary="查询每日新增线索统计",
+                         description="统计指定时间范围内每天的新增线索数量，支持按状态等条件筛选。organization_id 会自动从 access-token 中获取。需要在请求头中提供access-token进行身份验证。",
+                         tags=["线索管理"])
+async def get_daily_leads_stats(request: DailyLeadsStatsRequest, token: str = Depends(verify_access_token)):
+    """
+    查询每日新增线索统计
+    
+    支持的筛选条件：
+    - **start_date**: 开始日期（必填）
+    - **end_date**: 结束日期（必填）
+    - **clues_status**: 线索状态筛选
+    
+    注意：organization_id 会自动从 access-token 中获取，确保用户只能查看自己组织的数据。
+    
+    返回指定时间范围内每天的新增线索数量统计。
+    """
+    try:
+        # 构建统计查询
+        stats_query = '''
+        SELECT 
+            DATE(create_time) as date,
+            COUNT(*) as daily_count
+        FROM clues 
+        WHERE DATE(create_time) BETWEEN %s AND %s
+        '''
+        
+        params = [request.start_date, request.end_date]
+        
+        # 从token中获取organization_id
+        organization_id = token.get("organization_id")
+        if organization_id:
+            stats_query += " AND organization_id = %s"
+            params.append(organization_id)
+        
+        if request.clues_status is not None:
+            stats_query += " AND clues_status = %s"
+            params.append(request.clues_status)
+        
+        stats_query += " GROUP BY DATE(create_time) ORDER BY date"
+        
+        # 执行统计查询
+        stats_result = execute_query(stats_query, params)
+        
+        # 生成日期范围内的所有日期
+        from datetime import datetime, timedelta
+        start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
+        end_date = datetime.strptime(request.end_date, "%Y-%m-%d")
+        
+        # 创建日期范围
+        date_range = []
+        current_date = start_date
+        while current_date <= end_date:
+            date_range.append(current_date.strftime("%Y-%m-%d"))
+            current_date += timedelta(days=1)
+        
+        # 构建每日统计数据
+        daily_stats = {}
+        total_count = 0
+        
+        # 初始化所有日期的统计为0
+        for date in date_range:
+            daily_stats[date] = {
+                "date": date,
+                "count": 0,
+                "weekday": datetime.strptime(date, "%Y-%m-%d").strftime("%A")  # 星期几
+            }
+        
+        # 填充实际数据
+        for row in stats_result:
+            date = row["date"].strftime("%Y-%m-%d")
+            count = row["daily_count"]
+            daily_stats[date]["count"] = count
+            total_count += count
+        
+        # 计算统计信息
+        daily_counts = [stats["count"] for stats in daily_stats.values()]
+        avg_daily_count = round(sum(daily_counts) / len(daily_counts), 2) if daily_counts else 0
+        max_daily_count = max(daily_counts) if daily_counts else 0
+        min_daily_count = min(daily_counts) if daily_counts else 0
+        
+        # 找出最高和最低的日期
+        max_date = None
+        min_date = None
+        for date, stats in daily_stats.items():
+            if stats["count"] == max_daily_count:
+                max_date = date
+            if stats["count"] == min_daily_count:
+                min_date = date
+        
+        # 构建返回数据
+        stats_data = {
+            "date_range": {
+                "start_date": request.start_date,
+                "end_date": request.end_date,
+                "total_days": len(date_range)
+            },
+            "total_leads": total_count,
+            "daily_stats": list(daily_stats.values()),
+            "summary": {
+                "avg_daily_count": avg_daily_count,
+                "max_daily_count": max_daily_count,
+                "min_daily_count": min_daily_count,
+                "max_date": max_date,
+                "min_date": min_date,
+                "total_days_with_leads": len([stats for stats in daily_stats.values() if stats["count"] > 0])
+            }
+        }
+        
+        return DailyLeadsStatsResponse(
+            status="success",
+            code=1000,
+            message=f"统计完成，{request.start_date} 至 {request.end_date} 期间共新增 {total_count} 条线索",
+            data=stats_data
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "code": 1002,
+                "message": f"统计每日新增线索失败：{str(e)}"
+            }
+        )

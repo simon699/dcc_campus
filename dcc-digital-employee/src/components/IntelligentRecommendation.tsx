@@ -13,6 +13,21 @@ export default function IntelligentRecommendation({ robots }: IntelligentRecomme
   useEffect(() => {
     // 模拟智能推荐逻辑
     const generateRecommendation = () => {
+      // 如果没有机器人数据，使用默认数据
+      if (!robots || robots.length === 0) {
+        setRecommendation({
+          type: 'general',
+          robot: {
+            avatar: '🤖',
+            name: 'AI助手'
+          },
+          reason: '系统检测到您可能需要AI助手的帮助，建议启动智能工作流程',
+          benefit: '预计可提升 50% 的工作效率'
+        });
+        setIsVisible(true);
+        return;
+      }
+
       const workingRobots = robots.filter(r => r.status === 'working');
       const idleRobots = robots.filter(r => r.status === 'idle');
       
@@ -23,12 +38,23 @@ export default function IntelligentRecommendation({ robots }: IntelligentRecomme
           reason: '检测到新的线索数据，建议激活此机器人处理',
           benefit: '预计可提升 40% 的处理效率'
         });
-      } else {
+      } else if (workingRobots.length > 0) {
         setRecommendation({
           type: 'optimize',
           robot: workingRobots[0],
           reason: '当前工作负载较高，建议优化任务分配',
           benefit: '可减少 25% 的处理时间'
+        });
+      } else {
+        // 如果没有可用的机器人，显示通用建议
+        setRecommendation({
+          type: 'general',
+          robot: {
+            avatar: '🤖',
+            name: 'AI助手'
+          },
+          reason: '系统检测到您可能需要AI助手的帮助，建议启动智能工作流程',
+          benefit: '预计可提升 50% 的工作效率'
         });
       }
       setIsVisible(true);
@@ -65,8 +91,8 @@ export default function IntelligentRecommendation({ robots }: IntelligentRecomme
             
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
-                <span className="text-2xl">{recommendation.robot.avatar}</span>
-                <span className="text-white font-medium">{recommendation.robot.name}</span>
+                <span className="text-2xl">{recommendation.robot?.avatar || '🤖'}</span>
+                <span className="text-white font-medium">{recommendation.robot?.name || 'AI助手'}</span>
               </div>
               
               <div className="text-green-400 text-sm font-medium">
