@@ -69,18 +69,25 @@ export default function Login() {
         const { user_info, access_token } = result.data;
 
         // Store user info and access token in localStorage
-        localStorage.setItem('user', JSON.stringify({ username: user_info.username }));
+        localStorage.setItem('user', JSON.stringify({ 
+          username: user_info.username,
+          dcc_user: user_info.dcc_user 
+        }));
         localStorage.setItem('access_token', access_token);
 
         // Set a cookie for middleware authentication
         document.cookie = `user=${JSON.stringify({ username: user_info.username })}; path=/; max-age=86400; samesite=strict`;
         document.cookie = `access_token=${access_token}; path=/; max-age=86400; samesite=strict`;
+
+        // 检查是否需要绑定DCC账号
+        if (!user_info.dcc_user) {
+          // 将需要绑定DCC的信息存储到sessionStorage
+          sessionStorage.setItem('needBindDcc', 'true');
+        }
       } else {
         throw new Error(result.message || '登录失败');
       }
-
-      // Redirect to robots page
-      router.push('/robots');
+      router.push('/');
     } catch (err) {
       setError('登录失败，请重试');
       console.error('Login error:', err);
@@ -102,11 +109,6 @@ export default function Login() {
         <div className="w-full max-w-md px-6">
           {/* Logo and Title */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-xl mb-4 bg-gradient-to-r from-blue-500 to-purple-500">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </div>
             <div className="inline-flex items-center space-x-3 mb-4">
               <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" />
               <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
@@ -231,7 +233,7 @@ export default function Login() {
           {/* Footer */}
           <div className="mt-8 text-center">
             <p className="text-xs text-gray-400">
-              © 2024 数字员工平台. 保留所有权利.
+              © 2025 DCC 数字员工平台. 保留所有权利.
             </p>
           </div>
         </div>

@@ -32,6 +32,124 @@ body {
            relative;
   }
 
+  /* 步骤卡片特殊样式 */
+  .step-card {
+    @apply bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 
+           rounded-xl p-4 shadow-sm hover:shadow-md transition-all duration-300
+           relative cursor-pointer;
+  }
+
+  .step-card.active {
+    @apply ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700;
+  }
+
+  .step-card.completed {
+    @apply border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/10;
+  }
+
+  .step-card:hover {
+    @apply transform scale-105 shadow-lg;
+  }
+
+  /* 步骤连接线样式 */
+  .step-connector {
+    @apply relative;
+  }
+
+  .step-connector::after {
+    content: '';
+    @apply absolute left-6 top-full w-0.5 bg-gray-300 dark:bg-gray-600;
+    height: 2rem;
+    z-index: 1;
+  }
+
+  .step-connector:last-child::after {
+    display: none;
+  }
+
+  .step-connector.completed::after {
+    @apply bg-green-500;
+  }
+
+  .step-connector.active::after {
+    @apply bg-blue-500;
+  }
+
+  /* AI动画容器 */
+  .ai-animation-container {
+    @apply relative w-full h-16 mb-4 flex items-center justify-center;
+  }
+
+  .ai-animation {
+    @apply w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 
+           flex items-center justify-center shadow-lg relative;
+    animation: ai-pulse 2s ease-in-out infinite;
+  }
+
+  .ai-animation::before {
+    content: '';
+    @apply absolute inset-0 rounded-full bg-gradient-to-br from-blue-400 to-purple-500;
+    animation: ai-rotate 3s linear infinite;
+  }
+
+  .ai-animation::after {
+    content: '';
+    @apply absolute -inset-1 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 opacity-20;
+    animation: ai-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes ai-pulse {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    }
+    50% {
+      transform: scale(1.1);
+      box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+    }
+  }
+
+  @keyframes ai-rotate {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes ai-glow {
+    0%, 100% {
+      opacity: 0.2;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.4;
+      transform: scale(1.2);
+    }
+  }
+
+  /* 进度指示器 */
+  .progress-indicator {
+    @apply absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full 
+           flex items-center justify-center text-white text-xs font-bold;
+    animation: progress-bounce 1s ease-in-out infinite;
+  }
+
+  @keyframes progress-bounce {
+    0%, 100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.2);
+    }
+  }
+
+  /* 步骤进度条 */
+  .step-progress {
+    @apply absolute bottom-0 left-0 h-1 bg-green-500 rounded-b-xl transition-all duration-500;
+  }
+
   /* 现代按钮样式 */
   .btn-primary {
     @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-4 
@@ -124,6 +242,32 @@ body {
     @apply bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200;
   }
 
+  /* 进度条样式 */
+  .progress-bar {
+    @apply w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply h-2 rounded-full transition-all duration-300 ease-out;
+  }
+
+  .progress-fill-blue {
+    @apply bg-blue-500;
+  }
+
+  .progress-fill-green {
+    @apply bg-green-500;
+  }
+
+  /* 动画效果 */
+  .animate-bounce-slow {
+    animation: bounce 2s infinite;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
   /* 现代主题切换按钮 */
   .theme-toggle {
     @apply relative w-12 h-6 bg-gray-300 dark:bg-gray-600 rounded-full 
@@ -175,6 +319,17 @@ body {
 
   .table-cell {
     @apply px-6 py-4 text-sm text-gray-900 dark:text-gray-100;
+  }
+
+  /* 结果卡片样式 */
+  .result-card {
+    @apply bg-white dark:bg-slate-800 rounded-lg p-4 border border-gray-200 
+           dark:border-slate-700 shadow-sm hover:shadow-md transition-all duration-200
+           cursor-pointer hover:scale-105;
+  }
+
+  .result-card:hover {
+    @apply transform scale-105 shadow-lg;
   }
 }
 

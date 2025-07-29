@@ -1,215 +1,174 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTheme } from '../contexts/ThemeContext';
-import { createPortal } from 'react-dom';
+import UnbindConfirmModal from './UnbindConfirmModal';
 
 export default function Header() {
-  const [systemStatus, setSystemStatus] = useState('在线');
-  const [userName, setUserName] = useState<string | null>(null);
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showNotification, setShowNotification] = useState(false);
-  const [userMenuPosition, setUserMenuPosition] = useState({ top: 0, left: 0 });
-  const [mounted, setMounted] = useState(false);
   const router = useRouter();
-  const { theme } = useTheme();
-  
-  // 获取用户信息
-  useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const userData = JSON.parse(storedUser);
-        setUserName(userData.username);
-      } else {
-        // 设置默认用户名用于演示，实际项目中可以重定向到登录页
-        setUserName('Admin');
-        // router.push('/login');
-      }
-    } catch (err) {
-      console.error('Error parsing user data:', err);
-      // 设置默认用户名
-      setUserName('Admin');
-    }
-  }, [router]);
-  
-  // 获取系统安全状态
-  useEffect(() => {
-    const fetchSystemStatus = async () => {
-      try {
-        const response = await fetch('http://localhost:8000/api/health');
-        if (response.ok) {
-          const data = await response.json();
-          
-          // 根据状态设置显示
-          if (data.status === 'ok') {
-            setSystemStatus('在线');
-          } else {
-            setSystemStatus('离线');
-          }
-        } else {
-          setSystemStatus('在线');
-        }
-      } catch (error) {
-        setSystemStatus('在线');
-      }
-    };
+  const [user, setUser] = useState<any>(null);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [showUnbindModal, setShowUnbindModal] = useState(false);
 
-    // 首次加载时获取状态
-    fetchSystemStatus();
-    
-    // 设置定时器，每30秒更新一次状态
-    const intervalId = setInterval(fetchSystemStatus, 30000);
-    
-    // 组件卸载时清除定时器
-    return () => clearInterval(intervalId);
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      setUser(JSON.parse(userStr));
+    }
   }, []);
-  
-  // 处理退出登录
+
   const handleLogout = () => {
-    // 清除用户信息
     localStorage.removeItem('user');
+    localStorage.removeItem('access_token');
     document.cookie = 'user=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-    
-    // 重定向到登录页
+    document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     router.push('/login');
   };
 
-  // 更新用户菜单位置
-  const updateUserMenuPosition = (element: HTMLElement) => {
-    const rect = element.getBoundingClientRect();
-    setUserMenuPosition({
-      top: rect.bottom + window.scrollY + 8,
-      left: rect.right + window.scrollX - 224, // 224px 是菜单的宽度
-    });
+  const handleUnbind = () => {
+    setShowUnbindModal(true);
+    setIsDropdownOpen(false);
   };
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const handleUnbindConfirm = async () => {
+    try {
+      const accessToken = localStorage.getItem('access_token');
+      const response = await fetch('http://localhost:8000/api/dcc/disassociate', {
+        method: 'DELETE',
+        headers: {
+          'access-token': accessToken || '',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('解绑失败');
+      }
+
+      const result = await response.json();
+
+      if (result.status === 'success') {
+        // 更新本地存储的用户信息
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+          const user = JSON.parse(userStr);
+          user.dcc_user = null;
+          localStorage.setItem('user', JSON.stringify(user));
+          setUser(user);
+        }
+
+        // 设置需要重新绑定的标记
+        sessionStorage.setItem('needBindDcc', 'true');
+        
+        // 关闭弹窗
+        setShowUnbindModal(false);
+        
+        // 刷新页面以显示绑定弹窗
+        window.location.reload();
+      } else {
+        throw new Error(result.message || '解绑失败');
+      }
+    } catch (err) {
+      console.error('Unbind error:', err);
+      alert('解绑失败，请重试');
+    }
+  };
+
+  const toggleDropdown = () => {
+    setIsDropdownOpen(!isDropdownOpen);
+  };
 
   return (
-    <header className={`border-b transition-colors duration-200 ${
-      theme === 'dark' 
-        ? 'bg-gray-900 border-gray-800' 
-        : 'bg-white border-gray-200'
-    }`}>
+    <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/10 border-b border-white/20">
       <div className="max-w-7xl mx-auto px-6 py-4">
-        <div className="flex justify-end items-center">
-          {/* Right side - Status and User */}
-          <div className="flex items-center space-x-4">
-            {/* System Status */}
-            <div className="flex items-center space-x-2">
-              <span className={`text-sm ${
-                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-              }`}>
-                系统状态:
-              </span>
-              <div className="flex items-center space-x-1.5">
-                <span className={`text-sm font-medium ${
-                  systemStatus === '在线' 
-                    ? 'text-green-600 dark:text-green-400' 
-                    : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {systemStatus}
-                </span>
-                <div className={`status-dot ${
-                  systemStatus === '在线' ? 'status-dot-online' : 'status-dot-offline'
-                }`}></div>
-              </div>
+        <div className="flex items-center justify-between">
+          {/* Logo */}
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
             </div>
-            
-            {/* User Menu */}
-            {userName && (
-              <div className="relative">
-                <button 
-                  onClick={(e) => {
-                    setShowUserMenu(!showUserMenu);
-                    updateUserMenuPosition(e.currentTarget);
-                  }}
-                  className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors duration-200 ${
-                    theme === 'dark' 
-                      ? 'hover:bg-gray-800 text-gray-300 hover:text-white' 
-                      : 'hover:bg-gray-100 text-gray-700 hover:text-gray-900'
-                  }`}
-                >
-                  <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-sm font-medium text-white">
-                    {userName.charAt(0).toUpperCase()}
+            <h1 className="text-xl font-semibold text-white">
+              DCC 数字员工
+            </h1>
+          </div>
+
+          {/* Right side */}
+          <div className="flex items-center space-x-4">
+            {/* User menu */}
+            <div className="relative">
+              <button 
+                onClick={toggleDropdown}
+                className="flex items-center space-x-2 p-2 rounded-lg transition-colors duration-200 text-gray-300 hover:text-white hover:bg-white/10"
+              >
+                <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                  <span className="text-sm font-medium text-white">
+                    {user?.username?.charAt(0)?.toUpperCase() || 'U'}
+                  </span>
+                </div>
+                <span className="text-sm font-medium">
+                  {user?.username || '用户'}
+                </span>
+                <svg className={`w-4 h-4 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Dropdown menu */}
+              {isDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-56 rounded-lg shadow-lg py-1 backdrop-blur-xl bg-white/10 border border-white/20">
+                  {/* DCC账号信息 */}
+                  {user?.dcc_user && (
+                    <div className="px-4 py-3 border-b border-white/10">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                        <span className="text-xs text-gray-400">DCC账号</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-blue-300 truncate">
+                          {user.dcc_user}
+                        </span>
+                        <button
+                          onClick={handleUnbind}
+                          className="ml-2 px-2 py-1 text-xs bg-red-600/50 hover:bg-red-500/50 text-red-200 hover:text-white rounded transition-colors duration-200"
+                        >
+                          解绑
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 用户信息 */}
+                  <div className="px-4 py-2 border-b border-white/10">
+                    <div className="text-xs text-gray-400 mb-1">用户名</div>
+                    <div className="text-sm font-medium text-white">
+                      {user?.username || '未知用户'}
+                    </div>
                   </div>
-                  <span className="text-sm font-medium">{userName}</span>
-                  <svg 
-                    className={`w-4 h-4 transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} 
-                    fill="none" 
-                    stroke="currentColor" 
-                    viewBox="0 0 24 24"
+                  
+                  {/* 退出登录 */}
+                  <button
+                    onClick={handleLogout}
+                    className="block w-full text-left px-4 py-2 text-sm transition-colors duration-200 text-gray-300 hover:text-white hover:bg-white/10"
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-              </div>
-            )}
+                    退出登录
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
       
-      {/* Notification */}
-      {showNotification && (
-        <div className="fixed top-4 right-4 bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 animate-slide-down">
-          <div className="flex items-center space-x-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.96-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-            <span className="font-medium">服务异常，请稍候重试</span>
-          </div>
-        </div>
-      )}
-
-      {/* User Menu Dropdown */}
-      {mounted && showUserMenu && createPortal(
-        <div 
-          className={`fixed w-56 rounded-lg shadow-lg border z-[9999] animate-slide-down ${
-            theme === 'dark' 
-              ? 'bg-gray-800 border-gray-700' 
-              : 'bg-white border-gray-200'
-          }`}
-          style={{
-            top: `${userMenuPosition.top}px`,
-            left: `${userMenuPosition.left}px`,
-          }}
-        >
-          <div className={`px-4 py-3 border-b ${
-            theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-          }`}>
-            <div className={`text-sm font-medium ${
-              theme === 'dark' ? 'text-white' : 'text-gray-900'
-            }`}>
-              {userName}
-            </div>
-            <div className={`text-xs ${
-              theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-            }`}>
-              管理员权限
-            </div>
-          </div>
-          <div className="py-1">
-            <button
-              onClick={handleLogout}
-              className={`flex items-center w-full text-left px-4 py-2 text-sm transition-colors duration-200 ${
-                theme === 'dark' 
-                  ? 'text-red-400 hover:bg-gray-700' 
-                  : 'text-red-600 hover:bg-gray-50'
-              }`}
-            >
-              <svg className="w-4 h-4 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              退出登录
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
+      {/* 解绑确认弹窗 */}
+      <UnbindConfirmModal
+        isOpen={showUnbindModal}
+        onClose={() => setShowUnbindModal(false)}
+        onConfirm={handleUnbindConfirm}
+        dccUser={user?.dcc_user || ''}
+      />
     </header>
   );
-}
+} 

@@ -99,10 +99,21 @@ async def register(user: UserRegister):
         )
         
         # 获取新用户信息
-        new_user = execute_query(
-            "SELECT id, username, phone, create_time,organization_id FROM users WHERE username = %s",
-            (user.username,)
-        )
+        try:
+            new_user = execute_query(
+                "SELECT id, username, phone, create_time, organization_id, dcc_user FROM users WHERE username = %s",
+                (user.username,)
+            )
+        except Exception:
+            # 如果dcc_user字段不存在，则查询不包含该字段，但手动添加dcc_user字段
+            new_user = execute_query(
+                "SELECT id, username, phone, create_time, organization_id FROM users WHERE username = %s",
+                (user.username,)
+            )
+            # 为每个用户记录添加dcc_user字段（设为None）
+            if new_user:
+                for user_record in new_user:
+                    user_record['dcc_user'] = None
         
         if not new_user:
             return RegisterResponse(
@@ -164,10 +175,22 @@ async def login(user: UserLogin):
         # 查询用户
         hashed_password = hash_password(user.password)
         
-        user_data = execute_query(
-            "SELECT id, username, phone, create_time,organization_id FROM users WHERE username = %s AND password = %s",
-            (user.username, hashed_password)
-        )
+        # 先尝试查询包含dcc_user字段
+        try:
+            user_data = execute_query(
+                "SELECT id, username, phone, create_time, organization_id, dcc_user FROM users WHERE username = %s AND password = %s",
+                (user.username, hashed_password)
+            )
+        except Exception:
+            # 如果dcc_user字段不存在，则查询不包含该字段，但手动添加dcc_user字段
+            user_data = execute_query(
+                "SELECT id, username, phone, create_time, organization_id FROM users WHERE username = %s AND password = %s",
+                (user.username, hashed_password)
+            )
+            # 为每个用户记录添加dcc_user字段（设为None）
+            if user_data:
+                for user_record in user_data:
+                    user_record['dcc_user'] = None
         
         if not user_data:
             return LoginResponse(
@@ -345,4 +368,235 @@ async def refresh_token(access_token: str = Header(None, alias="access-token")):
             code=1005,
             message=f"令牌刷新失败: {str(e)}",
             data={}
+        )
+
+# DCC账号关联相关模型
+class DccUserRequest(BaseModel):
+    dcc_user: str = Field(..., description="DCC账号")
+
+class DccUserResponse(BaseModel):
+    status: str
+    code: int
+    message: str
+    data: dict
+
+# DCC账号关联接口
+@login_router.post("/dcc/associate", response_model=DccUserResponse, description="关联DCC账号")
+async def associate_dcc_user(
+    request: DccUserRequest,
+    access_token: str = Header(None, alias="access-token")
+):
+    """
+    关联DCC账号接口
+    
+    需要登录状态，将DCC账号关联到当前用户
+    
+    - **dcc_user**: DCC账号
+    
+    返回数据包含：
+    - **user_info**: 更新后的用户信息
+    """
+    try:
+        if not access_token:
+            return DccUserResponse(
+                status="error",
+                code=1005,
+                message="缺少访问令牌",
+                data={}
+            )
+        
+        # 如果token以Bearer开头，去掉Bearer前缀
+        if access_token.startswith("Bearer "):
+            access_token = access_token[7:]
+        
+        # 验证令牌并获取用户信息
+        from utils.jwt_utils import verify_access_token as jwt_verify
+        user_info = jwt_verify(access_token)
+        
+        if not user_info:
+            return DccUserResponse(
+                status="error",
+                code=1006,
+                message="访问令牌无效",
+                data={}
+            )
+        
+        user_id = user_info.get("user_id") or user_info.get("id")
+        
+        if not user_id:
+            return DccUserResponse(
+                status="error",
+                code=1006,
+                message="用户ID获取失败",
+                data={}
+            )
+        
+        # 更新用户的DCC账号
+        try:
+            execute_update(
+                "UPDATE users SET dcc_user = %s WHERE id = %s",
+                (request.dcc_user, user_id)
+            )
+        except Exception as e:
+            return DccUserResponse(
+                status="error",
+                code=1002,
+                message=f"更新DCC账号失败: {str(e)}",
+                data={}
+            )
+        
+        # 获取更新后的用户信息
+        try:
+            updated_user = execute_query(
+                "SELECT id, username, phone, create_time, organization_id, dcc_user FROM users WHERE id = %s",
+                (user_id,)
+            )
+        except Exception:
+            # 如果dcc_user字段不存在，则查询不包含该字段，但手动添加dcc_user字段
+            updated_user = execute_query(
+                "SELECT id, username, phone, create_time, organization_id FROM users WHERE id = %s",
+                (user_id,)
+            )
+            # 为每个用户记录添加dcc_user字段（设为None）
+            if updated_user:
+                for user_record in updated_user:
+                    user_record['dcc_user'] = None
+        
+        if updated_user:
+            user_data = updated_user[0]
+            user_data['create_time'] = str(user_data['create_time'])
+            
+            return DccUserResponse(
+                status="success",
+                code=1000,
+                message="DCC账号关联成功",
+                data={
+                    "user_info": user_data
+                }
+            )
+        else:
+            return DccUserResponse(
+                status="error",
+                code=1007,
+                message="用户信息获取失败",
+                data={}
+            )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "status": "error",
+                "code": 1002,
+                "message": f"DCC账号关联失败: {str(e)}"
+            }
+        )
+
+# DCC账号解除关联接口
+@login_router.delete("/dcc/disassociate", response_model=DccUserResponse, description="解除DCC账号关联")
+async def disassociate_dcc_user(
+    access_token: str = Header(None, alias="access-token")
+):
+    """
+    解除DCC账号关联接口
+    
+    需要登录状态，清除当前用户的DCC账号关联
+    
+    返回数据包含：
+    - **user_info**: 更新后的用户信息
+    """
+    try:
+        if not access_token:
+            return DccUserResponse(
+                status="error",
+                code=1005,
+                message="缺少访问令牌",
+                data={}
+            )
+        
+        # 如果token以Bearer开头，去掉Bearer前缀
+        if access_token.startswith("Bearer "):
+            access_token = access_token[7:]
+        
+        # 验证令牌并获取用户信息
+        from utils.jwt_utils import verify_access_token as jwt_verify
+        user_info = jwt_verify(access_token)
+        
+        if not user_info:
+            return DccUserResponse(
+                status="error",
+                code=1006,
+                message="访问令牌无效",
+                data={}
+            )
+        
+        user_id = user_info.get("user_id") or user_info.get("id")
+        
+        if not user_id:
+            return DccUserResponse(
+                status="error",
+                code=1006,
+                message="用户ID获取失败",
+                data={}
+            )
+        
+        # 清除用户的DCC账号
+        try:
+            execute_update(
+                "UPDATE users SET dcc_user = NULL WHERE id = %s",
+                (user_id,)
+            )
+        except Exception as e:
+            return DccUserResponse(
+                status="error",
+                code=1002,
+                message=f"清除DCC账号失败: {str(e)}",
+                data={}
+            )
+        
+        # 获取更新后的用户信息
+        try:
+            updated_user = execute_query(
+                "SELECT id, username, phone, create_time, organization_id, dcc_user FROM users WHERE id = %s",
+                (user_id,)
+            )
+        except Exception:
+            # 如果dcc_user字段不存在，则查询不包含该字段，但手动添加dcc_user字段
+            updated_user = execute_query(
+                "SELECT id, username, phone, create_time, organization_id FROM users WHERE id = %s",
+                (user_id,)
+            )
+            # 为每个用户记录添加dcc_user字段（设为None）
+            if updated_user:
+                for user_record in updated_user:
+                    user_record['dcc_user'] = None
+        
+        if updated_user:
+            user_data = updated_user[0]
+            user_data['create_time'] = str(user_data['create_time'])
+            
+            return DccUserResponse(
+                status="success",
+                code=1000,
+                message="DCC账号解除关联成功",
+                data={
+                    "user_info": user_data
+                }
+            )
+        else:
+            return DccUserResponse(
+                status="error",
+                code=1007,
+                message="用户信息获取失败",
+                data={}
+            )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "status": "error",
+                "code": 1002,
+                "message": f"DCC账号解除关联失败: {str(e)}"
+            }
         )
