@@ -51,6 +51,145 @@ body {
     @apply transform scale-105 shadow-lg;
   }
 
+  /* 工作流风格步骤卡片 */
+  .workflow-step-card {
+    @apply relative p-3 rounded-xl border transition-all duration-500 transform;
+  }
+
+  .workflow-step-card.active {
+    @apply bg-gradient-to-br from-blue-900/40 to-purple-900/40 border-blue-500/50 scale-105 shadow-2xl shadow-blue-500/25;
+  }
+
+  .workflow-step-card.completed {
+    @apply bg-gradient-to-br from-green-900/20 to-emerald-900/20 border-green-500/30;
+  }
+
+  .workflow-step-card.pending {
+    @apply bg-gradient-to-br from-gray-900/20 to-gray-800/20 border-gray-600/30;
+  }
+
+  /* 工作流步骤图标 */
+  .workflow-step-icon {
+    @apply inline-flex items-center justify-center w-10 h-10 rounded-full text-xl transition-all duration-300;
+  }
+
+  .workflow-step-icon.active {
+    @apply bg-gradient-to-r from-blue-500 to-purple-500 animate-pulse;
+  }
+
+  .workflow-step-icon.completed {
+    @apply bg-gradient-to-r from-green-500 to-emerald-500;
+  }
+
+  .workflow-step-icon.pending {
+    @apply bg-gray-700;
+  }
+
+  /* 步骤编号指示器 */
+  .step-number-indicator {
+    @apply absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300;
+  }
+
+  .step-number-indicator.active {
+    @apply bg-gradient-to-r from-blue-500 to-purple-500 text-white;
+  }
+
+  .step-number-indicator.completed {
+    @apply bg-gradient-to-r from-green-500 to-emerald-500 text-white;
+  }
+
+  .step-number-indicator.pending {
+    @apply bg-gray-600 text-gray-300;
+  }
+
+  /* 数据状态标签 */
+  .data-status-badge {
+    @apply text-xs px-2 py-1 rounded-full border transition-all duration-300;
+  }
+
+  .data-status-badge.active {
+    @apply bg-blue-500/20 text-blue-300 border-blue-500/30;
+  }
+
+  .data-status-badge.completed {
+    @apply bg-green-500/20 text-green-300 border-green-500/30;
+  }
+
+  .data-status-badge.pending {
+    @apply bg-gray-500/20 text-gray-400 border-gray-500/30;
+  }
+
+  /* 文本截断 */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* 活动指示器 */
+  .active-indicator {
+    @apply absolute inset-0 rounded-xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 animate-pulse;
+  }
+
+  /* 进度条动画 */
+  .progress-animation {
+    @apply absolute bottom-0 left-0 h-1 bg-gradient-to-r from-blue-500 to-purple-500 rounded-b-xl transition-all duration-500;
+    animation: progress-flow 2s ease-in-out infinite;
+  }
+
+  @keyframes progress-flow {
+    0%, 100% {
+      opacity: 0.7;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  /* 步骤切换动画 */
+  .step-transition {
+    @apply transition-all duration-700 ease-in-out;
+  }
+
+  .step-transition-enter {
+    @apply transform scale-95 opacity-0;
+  }
+
+  .step-transition-enter-active {
+    @apply transform scale-100 opacity-100;
+  }
+
+  .step-transition-exit {
+    @apply transform scale-100 opacity-100;
+  }
+
+  .step-transition-exit-active {
+    @apply transform scale-95 opacity-0;
+  }
+
+  /* 数据流数字动画 */
+  .data-number {
+    @apply transition-all duration-300;
+  }
+
+  .data-number-update {
+    animation: number-pulse 0.5s ease-in-out;
+  }
+
+  @keyframes number-pulse {
+    0% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.1);
+      color: #fbbf24;
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+
   /* 步骤连接线样式 */
   .step-connector {
     @apply relative;
@@ -58,9 +197,10 @@ body {
 
   .step-connector::after {
     content: '';
-    @apply absolute left-6 top-full w-0.5 bg-gray-300 dark:bg-gray-600;
-    height: 2rem;
+    @apply absolute left-5 top-full w-0.5 bg-gray-300 dark:bg-gray-600;
+    height: 1.5rem;
     z-index: 1;
+    transition: all 0.5s ease;
   }
 
   .step-connector:last-child::after {
@@ -69,21 +209,61 @@ body {
 
   .step-connector.completed::after {
     @apply bg-green-500;
+    animation: flow-pulse 2s ease-in-out infinite;
   }
 
   .step-connector.active::after {
     @apply bg-blue-500;
+    animation: flow-pulse 1s ease-in-out infinite;
+  }
+
+  @keyframes flow-pulse {
+    0%, 100% {
+      opacity: 0.6;
+      box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+    }
+    50% {
+      opacity: 1;
+      box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+    }
+  }
+
+  /* 数据流动画 */
+  .data-flow {
+    @apply absolute left-6 top-full w-1 h-8 bg-gradient-to-b from-blue-500 to-transparent;
+    animation: data-flow 3s linear infinite;
+  }
+
+  @keyframes data-flow {
+    0% {
+      transform: translateY(-100%);
+      opacity: 0;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(100%);
+      opacity: 0;
+    }
   }
 
   /* AI动画容器 */
   .ai-animation-container {
-    @apply relative w-full h-16 mb-4 flex items-center justify-center;
+    @apply relative w-full h-14 mb-3 flex items-center;
   }
 
   .ai-animation {
-    @apply w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 
-           flex items-center justify-center shadow-lg relative;
+    @apply w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 
+           flex items-center justify-center shadow-lg relative cursor-pointer;
     animation: ai-pulse 2s ease-in-out infinite;
+    filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.3));
+    transition: all 0.3s ease;
+  }
+
+  .ai-animation:hover {
+    @apply transform scale-110;
+    filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.5));
   }
 
   .ai-animation::before {
@@ -176,6 +356,8 @@ body {
            rounded-lg transition-colors duration-200 focus:outline-none 
            focus:ring-2 focus:ring-green-500 focus:ring-offset-2;
   }
+
+
 
   .btn-danger {
     @apply bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 px-4 

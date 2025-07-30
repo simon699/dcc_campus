@@ -464,36 +464,36 @@ async def query_leads(request: LeadQueryRequest, token: str = Depends(verify_acc
             count_query += " AND (c.product LIKE %s OR EXISTS (SELECT 1 FROM product_category pc2 WHERE pc2.id = c.product_id AND pc2.name LIKE %s))"
             params.extend([f"%{request.product}%", f"%{request.product}%"])
         
-        # 修改时间筛选条件，使用完整的时间戳比较而不是 DATE() 函数
+        # 修改时间筛选条件，使用完整的时间戳比较
         if request.create_time_start:
             base_query += " AND c.create_time >= %s"
             count_query += " AND c.create_time >= %s"
-            params.append(request.create_time_start)
+            params.append(f"{request.create_time_start} 00:00:00")
         
         if request.create_time_end:
             base_query += " AND c.create_time <= %s"
             count_query += " AND c.create_time <= %s"
-            params.append(request.create_time_end)
+            params.append(f"{request.create_time_end} 23:59:59")
         
         if request.last_follow_time_start:
-            base_query += " AND f.follow_time >= %s"
-            count_query += " AND f.follow_time >= %s"
-            params.append(request.last_follow_time_start)
+            base_query += " AND f.follow_time IS NOT NULL AND f.follow_time >= %s"
+            count_query += " AND f.follow_time IS NOT NULL AND f.follow_time >= %s"
+            params.append(f"{request.last_follow_time_start} 00:00:00")
         
         if request.last_follow_time_end:
-            base_query += " AND f.follow_time <= %s"
-            count_query += " AND f.follow_time <= %s"
-            params.append(request.last_follow_time_end)
+            base_query += " AND f.follow_time IS NOT NULL AND f.follow_time <= %s"
+            count_query += " AND f.follow_time IS NOT NULL AND f.follow_time <= %s"
+            params.append(f"{request.last_follow_time_end} 23:59:59")
         
         if request.next_follow_time_start:
-            base_query += " AND f.next_follow_time >= %s"
-            count_query += " AND f.next_follow_time >= %s"
-            params.append(request.next_follow_time_start)
+            base_query += " AND f.next_follow_time IS NOT NULL AND f.next_follow_time >= %s"
+            count_query += " AND f.next_follow_time IS NOT NULL AND f.next_follow_time >= %s"
+            params.append(f"{request.next_follow_time_start} 00:00:00")
         
         if request.next_follow_time_end:
-            base_query += " AND f.next_follow_time <= %s"
-            count_query += " AND f.next_follow_time <= %s"
-            params.append(request.next_follow_time_end)
+            base_query += " AND f.next_follow_time IS NOT NULL AND f.next_follow_time <= %s"
+            count_query += " AND f.next_follow_time IS NOT NULL AND f.next_follow_time <= %s"
+            params.append(f"{request.next_follow_time_end} 23:59:59")
         
         if request.ai_call is not None:
             if request.ai_call:
@@ -503,8 +503,9 @@ async def query_leads(request: LeadQueryRequest, token: str = Depends(verify_acc
                 base_query += " AND (f.follow_type != 2 OR f.follow_type IS NULL)"
                 count_query += " AND NOT EXISTS (SELECT 1 FROM follows f2 WHERE f2.clues_id = c.id AND f2.follow_type = 2)"
         
-        # 获取总数
-        total_result = execute_query(count_query, params)
+        # 获取总数 - 使用独立的参数数组
+        count_params = params.copy()
+        total_result = execute_query(count_query, count_params)
         total_count = total_result[0]['total'] if total_result else 0
         
         # 添加排序和分页
@@ -514,16 +515,17 @@ async def query_leads(request: LeadQueryRequest, token: str = Depends(verify_acc
         offset = (request.page - 1) * request.page_size
         base_query += f" LIMIT {request.page_size} OFFSET {offset}"
         
-        # 执行查询
+        # 执行查询 - 使用原始参数数组
         leads = execute_query(base_query, params)
         
-        # 计算分页信息
+        # 计算分页信息 - 基于实际查询到的数据数量
+        actual_count = len(leads)
         total_pages = (total_count + request.page_size - 1) // request.page_size
         
         return LeadResponse(
             status="success",
             code=1000,
-            message=f"第 {request.page} 页找到 {len(leads)} 条线索",
+            message=f"第 {request.page} 页找到 {actual_count} 条线索，总共 {total_count} 条",
             data={
                 "leads": leads,
                 "pagination": {
@@ -532,7 +534,8 @@ async def query_leads(request: LeadQueryRequest, token: str = Depends(verify_acc
                     "total_count": total_count,
                     "total_pages": total_pages,
                     "has_next": request.page < total_pages,
-                    "has_prev": request.page > 1
+                    "has_prev": request.page > 1,
+                    "actual_count": actual_count
                 }
             }
         )
@@ -585,7 +588,6 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
                f.clues_status as latest_follow_clues_status,
                f.client_level as latest_follow_client_level,
                f.product as latest_follow_product,
-               pc.id as product_category_id,
                pc.name as product_category_name,
                pc.parent_id as product_parent_id
         FROM clues c
@@ -599,7 +601,7 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
             ) f2 ON f1.clues_id = f2.clues_id AND f1.follow_time = f2.max_follow_time
         ) f ON c.id = f.clues_id
         LEFT JOIN users u ON f.follower = u.id
-        LEFT JOIN product_category pc ON c.product_id = pc.id
+        LEFT JOIN product_category pc ON c.product = pc.name
         WHERE 1=1
         '''
         
@@ -615,7 +617,7 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
                 GROUP BY clues_id
             ) f2 ON f1.clues_id = f2.clues_id AND f1.follow_time = f2.max_follow_time
         ) f ON c.id = f.clues_id
-        LEFT JOIN product_category pc ON c.product_id = pc.id
+        LEFT JOIN product_category pc ON c.product = pc.name
         WHERE 1=1
         '''
         params = []
@@ -663,39 +665,39 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
             params.append(f"%{request.phone}%")
         
         if request.product:
-            base_query += " AND (c.product LIKE %s OR pc.name LIKE %s OR f.product LIKE %s)"
-            count_query += " AND (c.product LIKE %s OR pc.name LIKE %s OR f.product LIKE %s)"
-            params.extend([f"%{request.product}%", f"%{request.product}%", f"%{request.product}%"])
+            base_query += " AND (c.product LIKE %s OR f.product LIKE %s)"
+            count_query += " AND (c.product LIKE %s OR f.product LIKE %s)"
+            params.extend([f"%{request.product}%", f"%{request.product}%"])
         
         if request.create_time_start:
             base_query += " AND c.create_time >= %s"
             count_query += " AND c.create_time >= %s"
-            params.append(request.create_time_start)
+            params.append(f"{request.create_time_start} 00:00:00")
         
         if request.create_time_end:
             base_query += " AND c.create_time <= %s"
             count_query += " AND c.create_time <= %s"
-            params.append(request.create_time_end)
+            params.append(f"{request.create_time_end} 23:59:59")
         
         if request.last_follow_time_start:
-            base_query += " AND f.follow_time >= %s"
-            count_query += " AND f.follow_time >= %s"
-            params.append(request.last_follow_time_start)
+            base_query += " AND f.follow_time IS NOT NULL AND f.follow_time >= %s"
+            count_query += " AND f.follow_time IS NOT NULL AND f.follow_time >= %s"
+            params.append(f"{request.last_follow_time_start} 00:00:00")
         
         if request.last_follow_time_end:
-            base_query += " AND f.follow_time <= %s"
-            count_query += " AND f.follow_time <= %s"
-            params.append(request.last_follow_time_end)
+            base_query += " AND f.follow_time IS NOT NULL AND f.follow_time <= %s"
+            count_query += " AND f.follow_time IS NOT NULL AND f.follow_time <= %s"
+            params.append(f"{request.last_follow_time_end} 23:59:59")
         
         if request.next_follow_time_start:
-            base_query += " AND f.next_follow_time >= %s"
-            count_query += " AND f.next_follow_time >= %s"
-            params.append(request.next_follow_time_start)
+            base_query += " AND f.next_follow_time IS NOT NULL AND f.next_follow_time >= %s"
+            count_query += " AND f.next_follow_time IS NOT NULL AND f.next_follow_time >= %s"
+            params.append(f"{request.next_follow_time_start} 00:00:00")
         
         if request.next_follow_time_end:
-            base_query += " AND f.next_follow_time <= %s"
-            count_query += " AND f.next_follow_time <= %s"
-            params.append(request.next_follow_time_end)
+            base_query += " AND f.next_follow_time IS NOT NULL AND f.next_follow_time <= %s"
+            count_query += " AND f.next_follow_time IS NOT NULL AND f.next_follow_time <= %s"
+            params.append(f"{request.next_follow_time_end} 23:59:59")
         
         if request.ai_call is not None:
             if request.ai_call:
@@ -705,12 +707,16 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
                 base_query += " AND (f.follow_type != 2 OR f.follow_type IS NULL)"
                 count_query += " AND (f.follow_type != 2 OR f.follow_type IS NULL)"
         
+        # 获取总数 - 使用独立的参数数组
+        count_params = params.copy()
+        
         # 调试信息
         print(f"Count Query: {count_query}")
-        print(f"Count Params: {params}")
+        print(f"Count Params: {count_params}")
+        print(f"Base Query: {base_query}")
+        print(f"Base Params: {params}")
         
-        # 获取总数
-        total_result = execute_query(count_query, params)
+        total_result = execute_query(count_query, count_params)
         total_count = total_result[0]['total'] if total_result else 0
         
         print(f"Total Count Result: {total_result}")
@@ -723,16 +729,18 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
         offset = (request.page - 1) * request.page_size
         base_query += f" LIMIT {request.page_size} OFFSET {offset}"
         
-        # 执行查询
+        # 执行查询 - 使用原始参数数组
         results = execute_query(base_query, params)
+        print(f"Results count: {len(results)}")
         
         # 格式化数据时添加产品层级信息
         leads_with_follows = []
         for row in results:
             # 获取产品完整层级路径
             product_hierarchy = []
-            if row["product_category_id"]:
-                product_hierarchy = await get_product_hierarchy(row["product_category_id"])
+            # 注意：由于我们不再使用product_category_id，这里暂时跳过产品层级获取
+            # if row["product_category_id"]:
+            #     product_hierarchy = await get_product_hierarchy(row["product_category_id"])
             
             # 线索基本信息 - 如果有最新跟进记录，优先使用跟进记录中的字段
             lead_info = {
@@ -787,13 +795,14 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
                 "latest_follow": latest_follow
             })
         
-        # 计算分页信息
+        # 计算分页信息 - 基于实际查询到的数据数量
+        actual_count = len(leads_with_follows)
         total_pages = (total_count + request.page_size - 1) // request.page_size
         
         return LeadResponse(
             status="success",
             code=1000,
-            message=f"第 {request.page} 页找到 {len(leads_with_follows)} 条线索（含最新跟进记录）",
+            message=f"第 {request.page} 页找到 {actual_count} 条线索（含最新跟进记录），总共 {total_count} 条",
             data={
                 "leads_with_follows": leads_with_follows,
                 "pagination": {
@@ -802,7 +811,8 @@ async def query_leads_with_latest_follow(request: LeadQueryRequest, token: str =
                     "total_count": total_count,
                     "total_pages": total_pages,
                     "has_next": request.page < total_pages,
-                    "has_prev": request.page > 1
+                    "has_prev": request.page > 1,
+                    "actual_count": actual_count
                 }
             }
         )
@@ -911,19 +921,19 @@ async def get_lead_level_stats(request: LeadLevelStatsRequest, token: str = Depe
             params.append(request.create_time_end)
         
         if request.last_follow_time_start:
-            stats_query += " AND DATE(f.follow_time) >= %s"
+            stats_query += " AND f.follow_time IS NOT NULL AND DATE(f.follow_time) >= %s"
             params.append(request.last_follow_time_start)
         
         if request.last_follow_time_end:
-            stats_query += " AND DATE(f.follow_time) <= %s"
+            stats_query += " AND f.follow_time IS NOT NULL AND DATE(f.follow_time) <= %s"
             params.append(request.last_follow_time_end)
         
         if request.next_follow_time_start:
-            stats_query += " AND DATE(f.next_follow_time) >= %s"
+            stats_query += " AND f.next_follow_time IS NOT NULL AND DATE(f.next_follow_time) >= %s"
             params.append(request.next_follow_time_start)
         
         if request.next_follow_time_end:
-            stats_query += " AND DATE(f.next_follow_time) <= %s"
+            stats_query += " AND f.next_follow_time IS NOT NULL AND DATE(f.next_follow_time) <= %s"
             params.append(request.next_follow_time_end)
         
         if request.ai_call is not None:

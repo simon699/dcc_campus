@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 import uvicorn
 from api.health import health_router
 from api.login import login_router
@@ -8,6 +9,7 @@ from api.products import products_router
 from api.createLeads import create_leads_router
 from api.createFollows import create_follows_router
 from api.tasks import tasks_router
+from api.auto_call import auto_call_router
 from swagger_config import tags_metadata
 
 app = FastAPI(
@@ -23,6 +25,8 @@ app = FastAPI(
     * **产品管理** - 产品分类和管理（需要access-token验证）
     * **线索管理** - 客户线索创建和管理（需要access-token验证）
     * **跟进管理** - 线索跟进记录创建和管理（需要access-token验证）
+    * **任务管理** - 任务创建和管理（需要access-token验证）
+    * **外呼任务管理** - 外呼任务创建和查询（需要access-token验证）
     
     ## 身份验证
     
@@ -69,8 +73,8 @@ app = FastAPI(
         "name": "MIT",
     },
     openapi_tags=tags_metadata,
-    docs_url="/docs",  # Swagger UI 地址
-    redoc_url="/redoc",  # ReDoc 地址
+    docs_url=None,  # 禁用默认的Swagger UI
+    redoc_url=None,  # 禁用默认的ReDoc
 )
 
 # 配置CORS
@@ -82,6 +86,67 @@ app.add_middleware(
     allow_headers=["*"],  # 允许所有头部
 )
 
+# 自定义文档路由
+@app.get("/docs", response_class=HTMLResponse)
+async def custom_swagger_ui_html():
+    return HTMLResponse("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>DCC数字员工服务API - Swagger UI</title>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" type="text/css" href="https://cdn.bootcdn.net/ajax/libs/swagger-ui/5.9.0/swagger-ui.css" />
+    </head>
+    <body>
+        <div id="swagger-ui"></div>
+        <script src="https://cdn.bootcdn.net/ajax/libs/swagger-ui/5.9.0/swagger-ui-bundle.js"></script>
+        <script src="https://cdn.bootcdn.net/ajax/libs/swagger-ui/5.9.0/swagger-ui-standalone-preset.js"></script>
+        <script>
+            window.onload = function() {
+                const ui = SwaggerUIBundle({
+                    url: '/openapi.json',
+                    dom_id: '#swagger-ui',
+                    deepLinking: true,
+                    presets: [
+                        SwaggerUIBundle.presets.apis,
+                        SwaggerUIStandalonePreset
+                    ],
+                    plugins: [
+                        SwaggerUIBundle.plugins.DownloadUrl
+                    ],
+                    layout: "StandaloneLayout"
+                });
+            };
+        </script>
+    </body>
+    </html>
+    """)
+
+@app.get("/redoc", response_class=HTMLResponse)
+async def custom_redoc_html():
+    return HTMLResponse("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>DCC数字员工服务API - ReDoc</title>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <redoc spec-url="/openapi.json"></redoc>
+        <script src="https://cdn.bootcdn.net/ajax/libs/redoc/2.0.0/redoc.standalone.js"></script>
+    </body>
+    </html>
+    """)
+
 app.include_router(health_router, prefix="/api")
 app.include_router(login_router, prefix="/api")
 app.include_router(organization_router, prefix="/api")
@@ -89,6 +154,7 @@ app.include_router(products_router, prefix="/api")
 app.include_router(create_leads_router, prefix="/api")
 app.include_router(create_follows_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
+app.include_router(auto_call_router, prefix="/api")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
