@@ -101,19 +101,20 @@ async def register(user: UserRegister):
         # 获取新用户信息
         try:
             new_user = execute_query(
-                "SELECT id, username, phone, create_time, organization_id, dcc_user FROM users WHERE username = %s",
+                "SELECT id, username, phone, create_time, organization_id, dcc_user, dcc_user_org_id FROM users WHERE username = %s",
                 (user.username,)
             )
         except Exception:
-            # 如果dcc_user字段不存在，则查询不包含该字段，但手动添加dcc_user字段
+            # 如果dcc_user或dcc_user_org_id字段不存在，则查询不包含该字段，但手动添加字段
             new_user = execute_query(
                 "SELECT id, username, phone, create_time, organization_id FROM users WHERE username = %s",
                 (user.username,)
             )
-            # 为每个用户记录添加dcc_user字段（设为None）
+            # 为每个用户记录添加dcc_user和dcc_user_org_id字段（设为None）
             if new_user:
                 for user_record in new_user:
                     user_record['dcc_user'] = None
+                    user_record['dcc_user_org_id'] = None
         
         if not new_user:
             return RegisterResponse(
@@ -175,22 +176,23 @@ async def login(user: UserLogin):
         # 查询用户
         hashed_password = hash_password(user.password)
         
-        # 先尝试查询包含dcc_user字段
+        # 先尝试查询包含dcc_user和dcc_user_org_id字段
         try:
             user_data = execute_query(
-                "SELECT id, username, phone, create_time, organization_id, dcc_user FROM users WHERE username = %s AND password = %s",
+                "SELECT id, username, phone, create_time, organization_id, dcc_user, dcc_user_org_id FROM users WHERE username = %s AND password = %s",
                 (user.username, hashed_password)
             )
         except Exception:
-            # 如果dcc_user字段不存在，则查询不包含该字段，但手动添加dcc_user字段
+            # 如果dcc_user或dcc_user_org_id字段不存在，则查询不包含该字段，但手动添加字段
             user_data = execute_query(
                 "SELECT id, username, phone, create_time, organization_id FROM users WHERE username = %s AND password = %s",
                 (user.username, hashed_password)
             )
-            # 为每个用户记录添加dcc_user字段（设为None）
+            # 为每个用户记录添加dcc_user和dcc_user_org_id字段（设为None）
             if user_data:
                 for user_record in user_data:
                     user_record['dcc_user'] = None
+                    user_record['dcc_user_org_id'] = None
         
         if not user_data:
             return LoginResponse(
@@ -373,6 +375,7 @@ async def refresh_token(access_token: str = Header(None, alias="access-token")):
 # DCC账号关联相关模型
 class DccUserRequest(BaseModel):
     dcc_user: str = Field(..., description="DCC账号")
+    dcc_user_org_id: str = Field(..., description="DCC组织ID")
 
 class DccUserResponse(BaseModel):
     status: str
@@ -389,9 +392,10 @@ async def associate_dcc_user(
     """
     关联DCC账号接口
     
-    需要登录状态，将DCC账号关联到当前用户
+    需要登录状态，将DCC账号和DCC组织ID关联到当前用户
     
     - **dcc_user**: DCC账号
+    - **dcc_user_org_id**: DCC组织ID
     
     返回数据包含：
     - **user_info**: 更新后的用户信息
@@ -431,11 +435,11 @@ async def associate_dcc_user(
                 data={}
             )
         
-        # 更新用户的DCC账号
+        # 更新用户的DCC账号和DCC组织ID
         try:
             execute_update(
-                "UPDATE users SET dcc_user = %s WHERE id = %s",
-                (request.dcc_user, user_id)
+                "UPDATE users SET dcc_user = %s, dcc_user_org_id = %s WHERE id = %s",
+                (request.dcc_user, request.dcc_user_org_id, user_id)
             )
         except Exception as e:
             return DccUserResponse(
@@ -448,19 +452,20 @@ async def associate_dcc_user(
         # 获取更新后的用户信息
         try:
             updated_user = execute_query(
-                "SELECT id, username, phone, create_time, organization_id, dcc_user FROM users WHERE id = %s",
+                "SELECT id, username, phone, create_time, organization_id, dcc_user, dcc_user_org_id FROM users WHERE id = %s",
                 (user_id,)
             )
         except Exception:
-            # 如果dcc_user字段不存在，则查询不包含该字段，但手动添加dcc_user字段
+            # 如果dcc_user或dcc_user_org_id字段不存在，则查询不包含该字段，但手动添加字段
             updated_user = execute_query(
                 "SELECT id, username, phone, create_time, organization_id FROM users WHERE id = %s",
                 (user_id,)
             )
-            # 为每个用户记录添加dcc_user字段（设为None）
+            # 为每个用户记录添加dcc_user和dcc_user_org_id字段（设为None）
             if updated_user:
                 for user_record in updated_user:
                     user_record['dcc_user'] = None
+                    user_record['dcc_user_org_id'] = None
         
         if updated_user:
             user_data = updated_user[0]
@@ -500,7 +505,7 @@ async def disassociate_dcc_user(
     """
     解除DCC账号关联接口
     
-    需要登录状态，清除当前用户的DCC账号关联
+    需要登录状态，清除当前用户的DCC账号和DCC组织ID关联
     
     返回数据包含：
     - **user_info**: 更新后的用户信息
@@ -540,10 +545,10 @@ async def disassociate_dcc_user(
                 data={}
             )
         
-        # 清除用户的DCC账号
+        # 清除用户的DCC账号和DCC组织ID
         try:
             execute_update(
-                "UPDATE users SET dcc_user = NULL WHERE id = %s",
+                "UPDATE users SET dcc_user = NULL, dcc_user_org_id = NULL WHERE id = %s",
                 (user_id,)
             )
         except Exception as e:
@@ -557,19 +562,20 @@ async def disassociate_dcc_user(
         # 获取更新后的用户信息
         try:
             updated_user = execute_query(
-                "SELECT id, username, phone, create_time, organization_id, dcc_user FROM users WHERE id = %s",
+                "SELECT id, username, phone, create_time, organization_id, dcc_user, dcc_user_org_id FROM users WHERE id = %s",
                 (user_id,)
             )
         except Exception:
-            # 如果dcc_user字段不存在，则查询不包含该字段，但手动添加dcc_user字段
+            # 如果dcc_user或dcc_user_org_id字段不存在，则查询不包含该字段，但手动添加字段
             updated_user = execute_query(
                 "SELECT id, username, phone, create_time, organization_id FROM users WHERE id = %s",
                 (user_id,)
             )
-            # 为每个用户记录添加dcc_user字段（设为None）
+            # 为每个用户记录添加dcc_user和dcc_user_org_id字段（设为None）
             if updated_user:
                 for user_record in updated_user:
                     user_record['dcc_user'] = None
+                    user_record['dcc_user_org_id'] = None
         
         if updated_user:
             user_data = updated_user[0]

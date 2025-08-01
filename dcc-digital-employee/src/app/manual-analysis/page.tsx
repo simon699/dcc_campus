@@ -219,6 +219,17 @@ export default function ManualAnalysisPage() {
 
   // 发起计划
   const handleInitiatePlan = () => {
+    // 检查是否已绑定DCC账号
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      if (!user.dcc_user) {
+        alert('请先绑定DCC账号才能进行操作');
+        setShowDccBindModal(true);
+        return;
+      }
+    }
+
     if (userInput.trim()) {
       console.log('用户诉求:', userInput);
       // 这里可以发送用户输入到后端进行分析
@@ -233,6 +244,17 @@ export default function ManualAnalysisPage() {
 
   // 开始外呼
   const handleStartCalling = async () => {
+    // 检查是否已绑定DCC账号
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      if (!user.dcc_user) {
+        alert('请先绑定DCC账号才能进行操作');
+        setShowDccBindModal(true);
+        return;
+      }
+    }
+
     try {
       // 获取访问令牌
       const token = localStorage.getItem('access_token');
@@ -435,6 +457,10 @@ export default function ManualAnalysisPage() {
       <DccBindModal 
         isOpen={showDccBindModal} 
         onClose={handleDccBindClose}
+        onBindSuccess={() => {
+          // 绑定成功后可以继续操作
+          console.log('DCC绑定成功');
+        }}
       />
 
       {/* 配置弹窗 */}

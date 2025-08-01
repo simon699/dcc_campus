@@ -1,6 +1,4 @@
 {
-  "/report-history/page": "app/report-history/page.js",
-  "/login/page": "app/login/page.js",
   "/page": "app/page.js",
-  "/manual-analysis/page": "app/manual-analysis/page.js"
+  "/login/page": "app/login/page.js"
 }

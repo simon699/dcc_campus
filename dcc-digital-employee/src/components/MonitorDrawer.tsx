@@ -36,6 +36,16 @@ export default function MonitorDrawer({ isOpen, onClose, alerts, onStartCalling 
   };
 
   const handleStartCalling = async (leads: LeadItem[]) => {
+    // 检查是否已绑定DCC账号
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      if (!user.dcc_user) {
+        alert('请先绑定DCC账号才能进行操作');
+        return;
+      }
+    }
+
     try {
       // 获取访问令牌
       const token = localStorage.getItem('access_token');

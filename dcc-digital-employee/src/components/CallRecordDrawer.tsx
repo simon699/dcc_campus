@@ -13,13 +13,22 @@ interface CallRecord {
   notes?: string;
 }
 
+interface CallTask {
+  id: string;
+  leadName: string;
+  phone: string;
+  status: 'pending' | 'calling' | 'completed' | 'failed';
+  progress: number;
+}
+
 interface CallRecordDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   records: CallRecord[];
+  currentTasks?: CallTask[];
 }
 
-export default function CallRecordDrawer({ isOpen, onClose, records }: CallRecordDrawerProps) {
+export default function CallRecordDrawer({ isOpen, onClose, records, currentTasks = [] }: CallRecordDrawerProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'success':
@@ -85,7 +94,72 @@ export default function CallRecordDrawer({ isOpen, onClose, records }: CallRecor
 
           {/* 抽屉内容 */}
           <div className="flex-1 overflow-y-auto p-6">
+            {/* 正在拨打的电话 */}
+            {currentTasks.filter(task => task.status === 'calling').length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-white mb-3 flex items-center">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full mr-2 animate-pulse"></div>
+                  正在拨打
+                </h3>
+                <div className="space-y-3">
+                  {currentTasks.filter(task => task.status === 'calling').map((task) => (
+                    <div key={task.id} className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-white font-medium">{task.leadName}</span>
+                        <span className="text-blue-400 text-sm">通话中...</span>
+                      </div>
+                      <div className="text-gray-300 text-sm mb-3">
+                        <div>手机号: {task.phone}</div>
+                      </div>
+                      <div className="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                        <div 
+                          className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                          style={{ width: `${task.progress}%` }}
+                        ></div>
+                      </div>
+                      <div className="text-blue-400 text-xs mt-1 text-center">
+                        {task.progress}% 完成
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 等待拨打的电话 */}
+            {currentTasks.filter(task => task.status === 'pending').length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-white mb-3 flex items-center">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full mr-2"></div>
+                  等待拨打
+                </h3>
+                <div className="space-y-2">
+                  {currentTasks.filter(task => task.status === 'pending').slice(0, 3).map((task) => (
+                    <div key={task.id} className="bg-gray-500/10 rounded-lg p-3 border border-gray-500/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-white text-sm">{task.leadName}</span>
+                        <span className="text-gray-400 text-xs">等待中</span>
+                      </div>
+                      <div className="text-gray-400 text-xs mt-1">{task.phone}</div>
+                    </div>
+                  ))}
+                  {currentTasks.filter(task => task.status === 'pending').length > 3 && (
+                    <div className="text-gray-400 text-xs text-center py-2">
+                      还有 {currentTasks.filter(task => task.status === 'pending').length - 3} 个等待拨打
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 通话记录 */}
             <div className="space-y-4">
+              {records.length > 0 && (
+                <h3 className="text-lg font-semibold text-white mb-3 flex items-center">
+                  <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
+                  通话记录
+                </h3>
+              )}
               {records.map((record) => (
                 <div key={record.id} className="bg-white/5 rounded-xl p-4 border border-white/10">
                   <div className="flex items-start justify-between mb-3">

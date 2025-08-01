@@ -6,10 +6,11 @@ from api.health import health_router
 from api.login import login_router
 from api.createOrganization import organization_router
 from api.products import products_router
-from api.createLeads import create_leads_router
-from api.createFollows import create_follows_router
-from api.tasks import tasks_router
 from api.auto_call import auto_call_router
+from api.scene import scene_router
+from api.dcc_user import dcc_user_router
+from api.dcc_leads import dcc_leads_router
+from api.call_tasks import call_tasks_router
 from swagger_config import tags_metadata
 
 app = FastAPI(
@@ -51,18 +52,9 @@ app = FastAPI(
     * **2001** - 线索不存在
     * **2002** - 跟进操作失败
     * **2003** - 跟进记录不存在
-    
-    ## 线索状态说明
-    
-    * **0** - 已战败
-    * **1** - 未跟进（默认）
-    * **2** - 跟进中
-    * **3** - 已成单
-    
-    ## 客户等级说明
-    
-    * **1** - H级  * **2** - A级  * **3** - B级  * **4** - C级
-    * **5** - N级（默认）  * **6** - O级  * **7** - F级
+    * **2004** - 任务不存在或无权限访问
+    * **2005** - 获取任务信息失败
+
     """,
     version="1.0.0",
     contact={
@@ -151,10 +143,11 @@ app.include_router(health_router, prefix="/api")
 app.include_router(login_router, prefix="/api")
 app.include_router(organization_router, prefix="/api")
 app.include_router(products_router, prefix="/api")
-app.include_router(create_leads_router, prefix="/api")
-app.include_router(create_follows_router, prefix="/api")
-app.include_router(tasks_router, prefix="/api")
 app.include_router(auto_call_router, prefix="/api")
+app.include_router(scene_router, prefix="/api")
+app.include_router(dcc_user_router, prefix="/api")
+app.include_router(dcc_leads_router, prefix="/api")
+app.include_router(call_tasks_router, prefix="/api")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
