@@ -11,6 +11,7 @@ from api.scene import scene_router
 from api.dcc_user import dcc_user_router
 from api.dcc_leads import dcc_leads_router
 from api.call_tasks import call_tasks_router
+from api.auth_verify import auth_verify_router
 from swagger_config import tags_metadata
 
 app = FastAPI(
@@ -148,6 +149,7 @@ app.include_router(scene_router, prefix="/api")
 app.include_router(dcc_user_router, prefix="/api")
 app.include_router(dcc_leads_router, prefix="/api")
 app.include_router(call_tasks_router, prefix="/api")
+app.include_router(auth_verify_router, prefix="/api")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

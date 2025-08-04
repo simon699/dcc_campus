@@ -24,7 +24,7 @@ interface TaskInfo {
   create_name: string;
   create_time: string;
   leads_count: number;
-  scene_id?: string;
+  script_id?: string;
   task_type: number;
   size_desc?: any;
 }
@@ -125,7 +125,7 @@ export default function TaskLeadsDrawer({ isOpen, onClose, taskInfo, taskLeads =
                       <p className="text-sm font-medium mb-1">筛选条件:</p>
                       <div className="flex flex-wrap gap-1">
                         {filterConditions.map((condition, index) => (
-                          <span key={index} className="px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded">
+                          <span key={`condition-${index}-${condition}`} className="px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded">
                             {condition}
                           </span>
                         ))}
@@ -186,7 +186,7 @@ export default function TaskLeadsDrawer({ isOpen, onClose, taskInfo, taskLeads =
                     </thead>
                     <tbody className="divide-y divide-white/10">
                       {taskLeads.map((lead, index) => (
-                        <tr key={lead.id} className="hover:bg-white/5 transition-colors">
+                        <tr key={lead.id || `lead-${index}`} className="hover:bg-white/5 transition-colors">
                           <td className="px-4 py-3 text-sm text-gray-300">
                             {index + 1}
                           </td>

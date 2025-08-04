@@ -55,10 +55,13 @@ class Sample:
         except Exception as error:
             # 此处仅做打印展示，请谨慎对待异常处理，在工程项目中切勿直接忽略异常。
             # 错误 message
-            print(error.message)
+            print(f"API Error: {error.message}")
             # 诊断地址
-            print(error.data.get("Recommend"))
-            UtilClient.assert_as_string(error.message)
+            if hasattr(error, 'data') and error.data:
+                print(f"Recommend: {error.data.get('Recommend', 'No recommendation')}")
+            else:
+                print("No diagnostic information available")
+            raise error
 
     @staticmethod
     async def main_async(
@@ -77,10 +80,13 @@ class Sample:
         except Exception as error:
             # 此处仅做打印展示，请谨慎对待异常处理，在工程项目中切勿直接忽略异常。
             # 错误 message
-            print(error.message)
+            print(f"API Error: {error.message}")
             # 诊断地址
-            print(error.data.get("Recommend"))
-            UtilClient.assert_as_string(error.message)
+            if hasattr(error, 'data') and error.data:
+                print(f"Recommend: {error.data.get('Recommend', 'No recommendation')}")
+            else:
+                print("No diagnostic information available")
+            raise error
 
 
 if __name__ == '__main__':

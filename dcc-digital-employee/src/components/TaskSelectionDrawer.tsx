@@ -11,7 +11,7 @@ interface Task {
   status: 'pending' | 'script_configured' | 'completed';
   organization_id?: string;
   create_name?: string;
-  scene_id?: string;
+  script_id?: string;
   task_type?: number; // 1:已创建；2:开始外呼；3:外呼完成；4:已删除
   size_desc?: any;
 }
@@ -160,7 +160,7 @@ export default function TaskSelectionDrawer({ isOpen, onClose, onTaskSelect, tas
                       <div className="flex flex-wrap gap-1 mt-1">
                         {filterConditions.length > 0 ? (
                           filterConditions.map((condition, index) => (
-                            <span key={index} className="px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded">
+                            <span key={`condition-${index}-${condition}`} className="px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded">
                               {condition}
                             </span>
                           ))

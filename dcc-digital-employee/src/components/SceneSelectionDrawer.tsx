@@ -5,7 +5,7 @@ import { scenesAPI } from '../services/api';
 
 interface SceneTag {
   id: number;
-  scene_id: string;
+  script_id: string;
   tag_name: string;
   tag_detail: string;
   tags: string;
@@ -13,7 +13,7 @@ interface SceneTag {
 
 interface Scene {
   id: number;
-  scene_id: string;
+  script_id: string;
   scene_name: string;
   scene_detail: string;
   scene_status: number;
@@ -40,12 +40,14 @@ interface SceneSelectionDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onSceneSelect: (scene: Scene) => void;
+  onCreateSceneFromCopy?: (sceneData: any) => void; // 新增：从复制创建场景的回调
 }
 
 export default function SceneSelectionDrawer({ 
   isOpen, 
   onClose, 
-  onSceneSelect 
+  onSceneSelect,
+  onCreateSceneFromCopy
 }: SceneSelectionDrawerProps) {
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [loading, setLoading] = useState(false);
@@ -77,6 +79,41 @@ export default function SceneSelectionDrawer({
 
   const handleSceneSelect = (scene: Scene) => {
     onSceneSelect(scene);
+    onClose();
+  };
+
+  // 处理复制场景
+  const handleCopyScene = (scene: Scene, e: React.MouseEvent) => {
+    e.stopPropagation(); // 阻止事件冒泡，避免触发场景选择
+    
+    // 准备复制的场景数据
+    const copiedSceneData = {
+      scene_name: `${scene.scene_name} - 副本`,
+      scene_detail: scene.scene_detail,
+      scene_type: 2, // 设置为自定义场景
+      bot_name: scene.bot_name,
+      bot_sex: scene.bot_sex ? parseInt(scene.bot_sex) : undefined,
+      bot_age: scene.bot_age,
+      bot_post: scene.bot_post,
+      bot_style: scene.bot_style,
+      dialogue_target: scene.dialogue_target,
+      dialogue_bg: scene.dialogue_bg,
+      dialogue_skill: scene.dialogue_skill,
+      dialogue_flow: scene.dialogue_flow,
+      dialogue_constraint: scene.dialogue_constraint,
+      dialogue_opening_prompt: scene.dialogue_opening_prompt,
+      scene_tags: scene.scene_tags?.map(tag => ({
+        tag_name: tag.tag_name,
+        tag_detail: tag.tag_detail,
+        tags: tag.tags
+      })) || []
+    };
+
+    // 调用创建场景的回调
+    if (onCreateSceneFromCopy) {
+      onCreateSceneFromCopy(copiedSceneData);
+    }
+    
     onClose();
   };
 
@@ -129,9 +166,22 @@ export default function SceneSelectionDrawer({
               {scenes.map((scene) => (
                 <div
                   key={scene.id}
-                  className="bg-white/5 border border-white/10 rounded-lg p-6 hover:bg-white/10 transition-colors cursor-pointer"
+                  className="bg-white/5 border border-white/10 rounded-lg p-6 hover:bg-white/10 transition-colors cursor-pointer relative"
                   onClick={() => handleSceneSelect(scene)}
                 >
+                  {/* 复制按钮 - 只对官方场景显示 */}
+                  {scene.scene_type === 1 && (
+                    <button
+                      onClick={(e) => handleCopyScene(scene, e)}
+                      className="absolute top-4 right-4 p-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-blue-200 rounded-lg transition-colors"
+                      title="复制场景"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  )}
+
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-white mb-2">{scene.scene_name}</h3>

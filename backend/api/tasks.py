@@ -93,8 +93,8 @@ async def create_task(request: CreateTaskRequest, token: str = Depends(verify_ac
             )
         
         # 检查线索是否存在
-        lead_ids_str = ','.join(map(str, request.lead_ids))
-        lead_check_query = f"SELECT id FROM clues WHERE id IN ({lead_ids_str})"
+        lead_ids_str = ','.join([f"'{lead_id}'" for lead_id in request.lead_ids])
+        lead_check_query = f"SELECT id, leads_id FROM dcc_leads WHERE leads_id IN ({lead_ids_str})"
         existing_leads = execute_query(lead_check_query)
         existing_lead_ids = [lead['id'] for lead in existing_leads]
         
@@ -305,11 +305,11 @@ async def get_task_detail(task_id: int, token: str = Depends(verify_access_token
         
         # 获取关联的线索信息
         leads_query = """
-        SELECT c.id, c.client_name, c.phone, c.product, c.clues_status, c.client_level
+        SELECT c.id, c.leads_id, c.leads_user_name, c.leads_user_phone, c.leads_product, c.leads_status, c.leads_type
         FROM task_leads tl
-        JOIN clues c ON tl.lead_id = c.id
+        JOIN dcc_leads c ON tl.lead_id = c.id
         WHERE tl.task_id = %s
-        ORDER BY c.client_name
+        ORDER BY c.leads_user_name
         """
         leads_result = execute_query(leads_query, (task_id,))
         

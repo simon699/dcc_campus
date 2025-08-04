@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS outbound_calls (
     job_group_id VARCHAR(100) NOT NULL UNIQUE COMMENT '阿里云外呼任务组ID',
     job_group_name VARCHAR(200) NOT NULL COMMENT '外呼任务组名称',
     description TEXT COMMENT '外呼任务组描述',
+    script_id VARCHAR(100) COMMENT '场景ID（脚本ID）',
     strategy_json TEXT COMMENT '外呼策略配置（JSON格式）',
     lead_ids TEXT COMMENT '关联的线索ID列表（JSON格式）',
     status INT NOT NULL DEFAULT 1 COMMENT '任务状态：1=已创建，2=执行中，3=已完成，4=已暂停，5=已失败',
@@ -31,7 +32,7 @@ CREATE TABLE IF NOT EXISTS outbound_call_records (
     call_time DATETIME COMMENT '通话时间',
     created_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     -- 外键约束
-    FOREIGN KEY (lead_id) REFERENCES clues(id) ON DELETE CASCADE,
+    FOREIGN KEY (lead_id) REFERENCES dcc_leads(id) ON DELETE CASCADE,
     -- 索引
     INDEX idx_job_group_id (job_group_id),
     INDEX idx_job_id (job_id),

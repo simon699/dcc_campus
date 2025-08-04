@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS call_tasks (
     create_name VARCHAR(50) NOT NULL COMMENT '创建人名称',
     create_time DATETIME NOT NULL COMMENT '创建时间',
     leads_count INT NOT NULL COMMENT '线索数量',
-    scene_id VARCHAR(50)  COMMENT '场景ID',
+    script_id VARCHAR(50)  COMMENT '场景ID（脚本ID）',
     task_type INT NOT NULL COMMENT '任务类型:1:已创建；2:开始外呼；3:外呼完成；4:已删除,',
     size_desc JSON COMMENT '筛选条件'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='外呼任务表';

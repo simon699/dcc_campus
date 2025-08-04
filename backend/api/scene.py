@@ -5,8 +5,21 @@ from datetime import datetime
 import uuid
 from database.db import execute_update, execute_query
 from .auth import verify_access_token
+import requests
+import json
+import os
 
 scene_router = APIRouter(tags=["自动外呼场景管理"])
+
+# 外部API配置
+EXTERNAL_API_CONFIG = {
+    "scene_id_api_url": os.getenv("SCENE_ID_API_URL", "https://your-external-api.com/get-scene-id"),
+    "api_timeout": int(os.getenv("API_TIMEOUT", "30")),
+    "api_headers": {
+        "Content-Type": "application/json",
+        "Authorization": os.getenv("EXTERNAL_API_TOKEN", "")
+    }
+}
 
 # 请求模型
 class SceneTagRequest(BaseModel):
@@ -34,14 +47,14 @@ class CreateSceneRequest(BaseModel):
 # 响应模型
 class SceneTagResponse(BaseModel):
     id: int
-    scene_id: str
+    script_id: str
     tag_name: str
     tag_detail: str
     tags: str
 
 class SceneResponse(BaseModel):
     id: int
-    scene_id: str
+    script_id: str
     scene_name: str
     scene_detail: str
     scene_status: int
@@ -75,6 +88,64 @@ class SceneCreateResponse(BaseModel):
     message: str
     data: Optional[dict] = None
 
+def get_username_by_user_id(user_id: str) -> str:
+    """根据用户ID查询用户名"""
+    try:
+        # 查询用户表获取用户名
+        user_sql = "SELECT username FROM users WHERE id = %s"
+        user_result = execute_query(user_sql, (user_id,))
+        
+        if user_result:
+            return user_result[0]['username']
+        else:
+            return "未知用户"
+    except Exception as e:
+        print(f"查询用户名失败: {str(e)}")
+        return "未知用户"
+
+def get_script_id_from_external_api() -> str:
+    """从外部接口获取场景ID"""
+    try:
+        # 调用外部API获取场景ID
+        external_api_url = EXTERNAL_API_CONFIG["scene_id_api_url"]
+        
+                # 如果配置了外部API URL，则调用外部接口
+        if external_api_url and external_api_url != "https://your-external-api.com/get-scene-id":
+            payload = {
+                "request_type": "script_id",
+                "timestamp": datetime.now().isoformat(),
+                "source": "dcc_backend"
+            }
+            
+            response = requests.post(
+                external_api_url,
+                json=payload,
+                headers=EXTERNAL_API_CONFIG["api_headers"],
+                timeout=EXTERNAL_API_CONFIG["api_timeout"]
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success") and data.get("script_id"):
+                    return data["script_id"]
+                else:
+                    print(f"外部API返回错误: {data}")
+            else:
+                print(f"外部API调用失败，状态码: {response.status_code}")
+        
+        # 如果外部接口失败或未配置，使用备用方案
+        script_id = f"script_{uuid.uuid4().hex[:8]}"
+        return script_id
+        
+    except requests.exceptions.RequestException as e:
+        print(f"外部API请求异常: {str(e)}")
+        # 网络异常时使用备用方案
+        return f"script_{uuid.uuid4().hex[:8]}"
+    except Exception as e:
+        print(f"获取场景ID失败: {str(e)}")
+        # 其他异常时使用备用方案
+        return f"script_{uuid.uuid4().hex[:8]}"
+
 @scene_router.post("/create_scene",
                   response_model=SceneCreateResponse,
                   summary="创建自动外呼场景",
@@ -85,9 +156,7 @@ async def create_scene(request: CreateSceneRequest, token: dict = Depends(verify
         # 验证参数
         if not request.scene_name.strip():
             raise HTTPException(status_code=400, detail={"status": "error", "code": 4001, "message": "场景名称不能为空"})
-        
-        if not request.scene_detail.strip():
-            raise HTTPException(status_code=400, detail={"status": "error", "code": 4002, "message": "场景详情不能为空"})
+
         
         if request.scene_type not in [1, 2]:
             raise HTTPException(status_code=400, detail={"status": "error", "code": 4003, "message": "场景类型只能是1(官方场景)或2(自定义场景)"})
@@ -95,14 +164,18 @@ async def create_scene(request: CreateSceneRequest, token: dict = Depends(verify
         if not request.bot_name.strip():
             raise HTTPException(status_code=400, detail={"status": "error", "code": 4004, "message": "机器人名称不能为空"})
         
-        # 生成场景ID
-        scene_id = f"scene_{uuid.uuid4().hex[:8]}"
+        # 从外部接口获取场景ID
+        script_id = get_script_id_from_external_api()
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # 获取用户信息
         user_id = token.get("user_id")
         user_name = token.get("user_name", "未知用户")
         org_id = token.get("org_id")
+        
+        # 如果有 user_id，调用用户表查询 username
+        if user_id and user_id != "official":
+            user_name = get_username_by_user_id(user_id)
         
         # 如果是官方场景，使用默认值
         if request.scene_type == 1:
@@ -113,7 +186,7 @@ async def create_scene(request: CreateSceneRequest, token: dict = Depends(verify
         # 插入场景数据
         scene_sql = """
         INSERT INTO auto_call_scene (
-            scene_id, scene_name, scene_detail, scene_status, scene_type,
+            script_id, scene_name, scene_detail, scene_status, scene_type,
             scene_create_user_id, scene_create_user_name, scene_create_org_id, scene_create_time,
             bot_name, bot_sex, bot_age, bot_post, bot_style,
             dialogue_target, dialogue_bg, dialogue_skill, dialogue_flow, dialogue_constraint, dialogue_opening_prompt
@@ -123,7 +196,7 @@ async def create_scene(request: CreateSceneRequest, token: dict = Depends(verify
         """
         
         scene_params = (
-            scene_id, request.scene_name, request.scene_detail, 1, request.scene_type,
+            script_id, request.scene_name, request.scene_detail, 1, request.scene_type,
             user_id, user_name, org_id, current_time,
             request.bot_name, request.bot_sex, request.bot_age, request.bot_post, request.bot_style,
             request.dialogue_target, request.dialogue_bg, request.dialogue_skill, 
@@ -135,12 +208,12 @@ async def create_scene(request: CreateSceneRequest, token: dict = Depends(verify
         # 如果有场景标签，插入标签数据
         if request.scene_tags:
             tag_sql = """
-            INSERT INTO scene_tags (scene_id, tag_name, tag_detail, tags)
+            INSERT INTO scene_tags (script_id, tag_name, tag_detail, tags)
             VALUES (%s, %s, %s, %s)
             """
             
             for tag in request.scene_tags:
-                tag_params = (scene_id, tag.tag_name, tag.tag_detail, tag.tags)
+                tag_params = (script_id, tag.tag_name, tag.tag_detail, tag.tags)
                 execute_update(tag_sql, tag_params)
         
         return {
@@ -148,7 +221,7 @@ async def create_scene(request: CreateSceneRequest, token: dict = Depends(verify
             "code": 200,
             "message": "场景创建成功",
             "data": {
-                "scene_id": scene_id,
+                "script_id": script_id,
                 "scene_name": request.scene_name,
                 "scene_type": request.scene_type
             }
@@ -184,9 +257,9 @@ async def get_scenes(token: dict = Depends(verify_access_token)):
         for scene in scenes:
             # 查询场景标签
             tag_sql = """
-            SELECT * FROM scene_tags WHERE scene_id = %s
+            SELECT * FROM scene_tags WHERE script_id = %s
             """
-            tags = execute_query(tag_sql, (scene["scene_id"],))
+            tags = execute_query(tag_sql, (scene["script_id"],))
             
             # 构建标签响应
             scene_tags = []

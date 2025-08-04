@@ -15,6 +15,8 @@ interface FilterCondition {
   hasCustom?: boolean;
 }
 
+
+
 interface TaskCreationDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -43,6 +45,8 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
   const [selectedTimeValue, setSelectedTimeValue] = useState<string>('');
   const [taskName, setTaskName] = useState<string>('发起任务-');
   const [createdTaskData, setCreatedTaskData] = useState<any>(null);
+
+
 
   // 初始化筛选条件数据（不请求数据，只展示结构）
   useEffect(() => {
@@ -125,9 +129,9 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
             { value: 'today', label: '今天', count: 0 },
             { value: 'yesterday', label: '昨天', count: 0 },
             { value: 'this_week', label: '本周', count: 0 },
-            { value: 'next_week', label: '下周', count: 0 },
+            { value: 'last_week', label: '上周', count: 0 },
             { value: 'this_month', label: '本月', count: 0 },
-            { value: 'next_month', label: '下月', count: 0 },
+            { value: 'last_month', label: '上月', count: 0 },
             { value: 'custom', label: '自定义时间', count: 0 }
           ],
           hasCustom: true
@@ -138,6 +142,19 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
       setIsLoadingConditions(false);
     }
   }, [isOpen]);
+
+
+
+  // 处理条件选择完成，直接创建任务
+  const handleConditionsComplete = () => {
+    if (selectedConditions.length > 0) {
+      // 直接创建任务，不需要选择场景
+      handleCreateTask();
+    } else {
+      // 如果没有选择条件，提示用户
+      alert('请至少选择一个筛选条件');
+    }
+  };
 
   // 根据筛选条件自动更新任务名称
   useEffect(() => {
@@ -553,7 +570,7 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
       // 构建API请求数据
       const apiTaskData = {
         task_name: taskName,
-        scene_id: "", // 暂时为空，后续可以添加场景选择
+        script_id: "", // 不选择场景，使用空字符串
         size_desc: buildCurrentFilters(selectedConditions)
       };
       
@@ -576,15 +593,19 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
               filters: buildCurrentFilters(selectedConditions),
               organization_id: response.data.organization_id,
               create_name: response.data.create_name,
+              script_id: "", // 不选择场景
+              selectedScene: null,
               apiResponse: response
             };
             
             // 保存创建的任务数据用于显示
             setCreatedTaskData(taskData);
             
-            // 调用回调函数传递任务数据
+            // 使用setTimeout避免在渲染过程中调用回调
             if (onTaskCreated) {
-              onTaskCreated(taskData);
+              setTimeout(() => {
+                onTaskCreated(taskData);
+              }, 0);
             }
             return 100;
           }
@@ -929,65 +950,42 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
-                          <span className="text-green-300">计算中...</span>
+                          <span className="text-green-400 text-sm">计算中...</span>
                         </div>
                       ) : (
-                        <span className="text-2xl font-bold text-green-400">{filteredCount}</span>
+                        <div className="text-green-400 font-bold text-lg">{filteredCount}</div>
                       )}
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="mb-6 min-h-[400px]">
-                <h3 className="text-lg font-semibold text-white mb-4">
-                  {selectedConditions.length === 0 ? '选择第一个筛选条件' : '添加更多筛选条件'}
-                </h3>
-                
-                {isLoadingConditions ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="flex items-center">
-                      <svg className="animate-spin -ml-1 mr-3 h-6 w-6 text-blue-400" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      <span className="text-blue-300">正在加载筛选条件...</span>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {getUnusedConditions().map((condition) => (
-                        <div 
-                          key={condition.id} 
-                          className="bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-white/10 transition-colors cursor-pointer"
-                          onClick={() => handleConditionTypeSelect(condition)}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="text-white font-medium">{condition.label}</h4>
-                            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                          </div>
-                          <p className="text-gray-400 text-sm">点击获取数据并选择选项</p>
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-white mb-4">选择筛选条件类型</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {getUnusedConditions().map((condition) => (
+                    <div
+                      key={condition.id}
+                      onClick={() => handleConditionTypeSelect(condition)}
+                      className="bg-white/5 border rounded-lg p-4 hover:bg-white/10 transition-all duration-300 cursor-pointer group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-white font-medium group-hover:text-blue-300 transition-colors">{condition.label}</h4>
+                          <p className="text-gray-400 text-sm mt-1">点击选择具体条件</p>
                         </div>
-                      ))}
-                    </div>
-                    
-                    {getUnusedConditions().length === 0 && (
-                      <div className="text-center py-8">
-                        <div className="text-gray-400 mb-4">
-                          <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <div className="text-blue-400 group-hover:text-blue-300 transition-colors">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
                           </svg>
                         </div>
-                        <p className="text-gray-300">已设置所有筛选条件</p>
                       </div>
-                    )}
-                  </>
-                )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </>
+
           ) : currentStep === 'select_option' && currentCondition ? (
             <>
               <div className="flex items-center justify-between mb-6">
@@ -1278,7 +1276,7 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
                 取消
               </button>
               <button
-                onClick={handleCreateTask}
+                onClick={handleConditionsComplete}
                 disabled={selectedConditions.length === 0}
                 className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium rounded-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
@@ -1286,6 +1284,8 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
               </button>
             </div>
           )}
+          
+
           
           {currentStep === 'select_option' && (
             <div className="flex justify-end">

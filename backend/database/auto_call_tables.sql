@@ -1,7 +1,7 @@
 
 CREATE TABLE IF NOT EXISTS auto_call_scene (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    scene_id VARCHAR(50) NOT NULL COMMENT '场景ID',
+    script_id VARCHAR(50) NOT NULL COMMENT '场景ID（脚本ID）',
     scene_name VARCHAR(50) NOT NULL COMMENT '场景名称',
     scene_detail VARCHAR(200) NOT NULL COMMENT '场景详情',
     scene_status INT NOT NULL COMMENT '场景状态:1:上线；0:下线；2:删除',
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS auto_call_scene (
     dialogue_constraint VARCHAR(1000) COMMENT '对话限制',
     dialogue_opening_prompt VARCHAR(1000) COMMENT '对话开场白',
 
-    INDEX idx_scene_id (scene_id),
+    INDEX idx_script_id (script_id),
     INDEX idx_scene_status (scene_status),
     INDEX idx_scene_type (scene_type),
     INDEX idx_scene_create_org_id (scene_create_org_id)
@@ -32,10 +32,10 @@ CREATE TABLE IF NOT EXISTS auto_call_scene (
 
 CREATE TABLE IF NOT EXISTS scene_tags(
     id INT AUTO_INCREMENT PRIMARY KEY,
-    scene_id VARCHAR(50) NOT NULL COMMENT '场景ID',
+    script_id VARCHAR(50) NOT NULL COMMENT '场景ID（脚本ID）',
     tag_name VARCHAR(50) NOT NULL COMMENT '标签名称',
     tag_detail VARCHAR(200) NOT NULL COMMENT '标签详情',
     tags VARCHAR(1000) NOT NULL COMMENT '标签:多个用分号隔开',
-    INDEX idx_scene_id (scene_id),
+    INDEX idx_script_id (script_id),
     INDEX idx_tag_name (tag_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='自动外呼场景标签表';

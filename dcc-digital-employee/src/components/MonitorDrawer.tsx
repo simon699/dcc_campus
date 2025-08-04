@@ -1,247 +1,225 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import CallStatusDrawer from './CallStatusDrawer';
 
-interface AlertItem {
-  id: string;
-  title: string;
-  description: string;
-  type: 'warning' | 'info' | 'error';
-  leads?: LeadItem[];
-}
-
-interface LeadItem {
+interface CallingTask {
   id: string;
   name: string;
-  phone: string;
-  customerLevel: string;
-  lastFollowUp: string;
-  nextFollowUp: string;
-  notes: string;
-  priority: 'high' | 'medium' | 'low';
+  targetCount: number;
+  createdAt: string;
+  status: string;
 }
 
 interface MonitorDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  alerts: AlertItem[];
-  onStartCalling?: (leads: LeadItem[]) => void;
+  callingTasks: CallingTask[];
+  callProgress?: number;
 }
 
-export default function MonitorDrawer({ isOpen, onClose, alerts, onStartCalling }: MonitorDrawerProps) {
-  const [expandedAlert, setExpandedAlert] = useState<string | null>(null);
+export default function MonitorDrawer({ isOpen, onClose, callingTasks, callProgress = 0 }: MonitorDrawerProps) {
+  const [showCallStatus, setShowCallStatus] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<CallingTask | null>(null);
 
-  const handleViewLeadDetails = (alertId: string) => {
-    setExpandedAlert(expandedAlert === alertId ? null : alertId);
+  const handleTaskClick = (task: CallingTask) => {
+    setSelectedTask(task);
+    setShowCallStatus(true);
   };
 
-  const handleStartCalling = async (leads: LeadItem[]) => {
-    // 检查是否已绑定DCC账号
-    const userStr = localStorage.getItem('user');
-    if (userStr) {
-      const user = JSON.parse(userStr);
-      if (!user.dcc_user) {
-        alert('请先绑定DCC账号才能进行操作');
-        return;
-      }
-    }
-
-    try {
-      // 获取访问令牌
-      const token = localStorage.getItem('access_token');
-      if (!token) {
-        console.error('未找到访问令牌');
-        return;
-      }
-
-      // 提取线索ID
-      const leadIds = leads.map(lead => parseInt(lead.id));
-
-      // 构建请求参数
-      const requestData = {
-        "job_group_name": "客户回访任务",
-        "job_group_description": "对重要客户进行回访",
-        "strategy_json": {
-          "RepeatBy": "once",
-          "maxAttemptsPerDay": 3,
-          "minAttemptInterval": 120
-        },
-        "lead_ids": [225,226],
-        "extras": [
-          {
-            "key": "ServiceId",
-            "value": ""
-          },
-          {
-            "key": "TenantId",
-            "value": ""
-          }
-        ]
-      };
-
-      // 调用外呼接口
-      const response = await fetch('http://localhost:8000/api/create_outbound_call', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'access-token': token
-        },
-        body: JSON.stringify(requestData)
-      });
-
-      if (!response.ok) {
-        throw new Error(`API请求失败: ${response.status}`);
-      }
-
-      const result = await response.json();
-      
-      if (result.status === 'success') {
-        console.log('外呼任务创建成功:', result);
-        // 可以在这里添加成功提示
-        alert('外呼任务创建成功！');
-      } else {
-        throw new Error(result.message || '外呼任务创建失败');
-      }
-    } catch (error) {
-      console.error('发起外呼失败:', error);
-      alert('发起外呼失败，请重试');
-    }
+  const handleClose = () => {
+    onClose();
   };
+
+  // 如果没有任务，显示测试数据
+  const displayTasks = callingTasks.length > 0 ? callingTasks : [
+    {
+      id: 'test-1',
+      name: '测试外呼任务',
+      targetCount: 5,
+      createdAt: new Date().toLocaleString(),
+      status: 'working'
+    }
+  ];
+
+  if (!isOpen) return null;
 
   return (
     <>
-      {/* 遮罩层 */}
-      {isOpen && (
+      <div 
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-[70] pt-4" 
+        onClick={handleClose}
+      >
         <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
-          onClick={onClose}
-        />
-      )}
-
-      {/* 侧拉抽屉 */}
-      <div className={`
-        fixed top-0 right-0 h-full w-[600px] bg-white/10 backdrop-blur-xl border-l border-white/20
-        transform transition-transform duration-300 ease-in-out z-50
-        ${isOpen ? 'translate-x-0' : 'translate-x-full'}
-      `}>
-        <div className="h-full flex flex-col">
-          {/* 抽屉头部 */}
-          <div className="flex items-center justify-between p-6 border-b border-white/10">
-            <h2 className="text-xl font-semibold text-white">监控预警</h2>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-            >
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* 抽屉内容 */}
-          <div className="flex-1 overflow-y-auto p-6">
-            {/* 批量外呼按钮 */}
-            <div className="mb-6">
-              <button
-                onClick={() => {
-                  const allLeads = alerts.flatMap(alert => alert.leads || []);
-                  handleStartCalling(allLeads);
-                }}
-                className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl"
+          className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl max-w-4xl w-full mx-4 h-[80vh] flex flex-col" 
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex-1 overflow-y-auto p-6 pb-0">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white mb-2">外呼Agent监控</h2>
+                <p className="text-gray-300">实时监控外呼Agent的工作状态和任务执行情况</p>
+              </div>
+              <button 
+                onClick={handleClose} 
+                className="text-gray-400 hover:text-white transition-colors"
+                style={{ position: 'relative', zIndex: 1000 }}
               >
-                <div className="flex items-center justify-center">
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                  批量外呼跟进 ({alerts.flatMap(alert => alert.leads || []).length} 个客户)
-                </div>
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
-            <div className="space-y-4">
-              {alerts.map((alert) => (
-                <div key={alert.id} className="bg-white/5 rounded-xl p-4 border border-white/10">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center">
-                      <div className={`w-3 h-3 rounded-full mr-2 ${
-                        alert.type === 'warning' ? 'bg-yellow-400' : 
-                        alert.type === 'error' ? 'bg-red-400' : 'bg-blue-400'
-                      }`}></div>
-                      <h5 className="text-white font-medium">{alert.title}</h5>
-                    </div>
-                    <button
-                      onClick={() => handleViewLeadDetails(alert.id)}
-                      className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                      {expandedAlert === alert.id ? '隐藏详情' : '查看详情'}
-                    </button>
-                  </div>
-                  <p className="text-gray-300 text-sm mb-3">{alert.description}</p>
-                  
-                                     {/* 线索详情 */}
-                   {expandedAlert === alert.id && alert.leads && (
-                     <div className="space-y-3">
-                       {alert.leads.map((lead) => (
-                         <div key={lead.id} className="bg-white/5 rounded-lg p-4 border border-white/10">
-                           <div className="flex items-start justify-between mb-3">
-                             <div className="flex-1">
-                               <div className="flex items-center justify-between mb-2">
-                                 <span className="text-white font-medium text-lg">{lead.name}</span>
-                                 <span className={`text-xs px-2 py-1 rounded ${
-                                   lead.priority === 'high' ? 'bg-red-500/20 text-red-300' :
-                                   lead.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-300' :
-                                   'bg-green-500/20 text-green-300'
-                                 }`}>
-                                   {lead.priority === 'high' ? '高优先级' : 
-                                    lead.priority === 'medium' ? '中优先级' : '低优先级'}
-                                 </span>
-                               </div>
-                               <div className="text-gray-300 text-sm mb-3">
-                                 <div className="flex items-center mb-1">
-                                   <span className="text-gray-400 w-16">手机号:</span>
-                                   <span>{lead.phone}</span>
-                                 </div>
-                                 <div className="flex items-center mb-1">
-                                   <span className="text-gray-400 w-16">客户等级:</span>
-                                   <span className="text-blue-300">{lead.customerLevel}</span>
-                                 </div>
-                                 <div className="flex items-center mb-1">
-                                   <span className="text-gray-400 w-16">最近跟进:</span>
-                                   <span>{lead.lastFollowUp}</span>
-                                 </div>
-                                 <div className="flex items-center mb-1">
-                                   <span className="text-gray-400 w-16">下次跟进:</span>
-                                   <span className="text-yellow-300">{lead.nextFollowUp}</span>
-                                 </div>
-                                 <div className="flex items-start">
-                                   <span className="text-gray-400 w-16 mt-1">备注:</span>
-                                   <span className="text-gray-300 flex-1">{lead.notes}</span>
-                                 </div>
-                               </div>
-                             </div>
-                             <button
-                               onClick={() => handleStartCalling([lead])}
-                               className="ml-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors flex-shrink-0"
-                             >
-                               发起外呼
-                             </button>
-                           </div>
-                         </div>
-                       ))}
-                       <button
-                         onClick={() => handleStartCalling(alert.leads || [])}
-                         className="w-full mt-4 px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium rounded-lg transition-all duration-200"
-                       >
-                         批量发起外呼 ({alert.leads?.length || 0} 个客户)
-                       </button>
-                     </div>
-                   )}
+            {/* 外呼Agent状态 */}
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center">
+                  <div className="w-3 h-3 bg-blue-400 rounded-full mr-3 animate-pulse"></div>
+                  <h3 className="text-lg font-semibold text-white">外呼Agent状态</h3>
                 </div>
-              ))}
+                <span className="text-blue-300 text-sm font-medium">工作中</span>
+              </div>
+              
+              {/* 总体进度 */}
+              <div className="mb-4">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-gray-300">总体进度</span>
+                  <span className="text-blue-300 font-medium">{callProgress}%</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-500"
+                    style={{ width: `${callProgress}%` }}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse"></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 统计信息 */}
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-blue-400 font-bold text-lg">{displayTasks.length}</div>
+                  <div className="text-gray-400 text-xs">执行中任务</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-green-400 font-bold text-lg">
+                    {displayTasks.reduce((sum, task) => sum + task.targetCount, 0)}
+                  </div>
+                  <div className="text-gray-400 text-xs">目标线索</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-purple-400 font-bold text-lg">
+                    {Math.floor(callProgress * displayTasks.reduce((sum, task) => sum + task.targetCount, 0) / 100)}
+                  </div>
+                  <div className="text-gray-400 text-xs">已完成</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 任务列表 */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-white mb-4">执行中的任务</h3>
+              
+              {displayTasks.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-gray-400 mb-4">
+                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-white mb-2">暂无执行中的任务</h3>
+                  <p className="text-gray-400">外呼Agent当前处于空闲状态</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {displayTasks.map((task) => (
+                    <div 
+                      key={task.id} 
+                      className="bg-white/5 border border-white/10 rounded-lg p-4 cursor-pointer hover:bg-white/10 transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleTaskClick(task);
+                      }}
+                      style={{ position: 'relative', zIndex: 1000 }}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full mr-2 animate-pulse"></div>
+                          <h4 className="text-white font-medium">{task.name}</h4>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-blue-300 text-sm font-medium">执行中</span>
+                          <svg className="w-4 h-4 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                          </svg>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-400">目标线索:</span>
+                          <span className="text-white ml-2 font-medium">{task.targetCount}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">创建时间:</span>
+                          <span className="text-white ml-2">{task.createdAt}</span>
+                        </div>
+                      </div>
+                      
+                      {/* 任务进度 */}
+                      <div className="mt-3">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-gray-400">任务进度</span>
+                          <span className="text-blue-300">{Math.floor(callProgress / displayTasks.length)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                          <div 
+                            className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.floor(callProgress / displayTasks.length)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+
+                      {/* 点击提示 */}
+                      <div className="mt-2 text-xs text-blue-400 text-center">
+                        点击查看电话拨打情况
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="p-6 pt-0 pb-8 border-t border-white/10">
+            <div className="flex justify-end space-x-3">
+              <button 
+                onClick={handleClose} 
+                className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+                style={{ position: 'relative', zIndex: 1000 }}
+              >
+                关闭
+              </button>
             </div>
           </div>
         </div>
       </div>
+
+      {/* 电话拨打情况抽屉 */}
+      {selectedTask && (
+        <CallStatusDrawer
+          isOpen={showCallStatus}
+          onClose={() => {
+            setShowCallStatus(false);
+            setSelectedTask(null);
+          }}
+          taskId={selectedTask.id}
+          taskName={selectedTask.name}
+        />
+      )}
     </>
   );
 } 

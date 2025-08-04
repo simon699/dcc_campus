@@ -42,7 +42,8 @@ class Sample:
         args: List[str],
         job_group_name: str,
         job_group_description: str,
-        StrategyJson = None
+        StrategyJson = None,
+        script_id:str = None,
     ) -> None:
         client = self.create_client()
         
@@ -51,7 +52,7 @@ class Sample:
             "instance_id": os.getenv('INSTANCE_ID'),
             "job_group_name": job_group_name,
             "job_group_description": job_group_description,
-            "script_id": os.getenv('SCRIPT_ID')
+            "script_id": script_id
         }
         
         # 如果有策略JSON，添加到请求参数中
@@ -87,12 +88,13 @@ class Sample:
     @staticmethod
     async def main_async(
         args: List[str],
-        job_group_name: str
+        job_group_name: str,
+        script_id:str,
     ) -> None:
         client = Sample.create_client()
         create_job_group_request = outbound_bot_20191226_models.CreateJobGroupRequest(
             instance_id=os.getenv('INSTANCE_ID'),
-            script_id=os.getenv('SCRIPT_ID'),
+            script_id=script_id,
             job_group_name=job_group_name
         )
         runtime = util_models.RuntimeOptions()

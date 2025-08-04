@@ -2,6 +2,9 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { getActivityMonitor } from '../utils/activityMonitor';
+import { checkTokenValidity } from '../services/api';
+import { handleTokenExpired } from '../utils/tokenUtils';
 
 interface User {
   username: string;
@@ -23,14 +26,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // 在组件挂载时检查用户是否已登录
-    const checkUser = () => {
+    const checkUser = async () => {
       try {
         const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          setUser(JSON.parse(storedUser));
+        const accessToken = localStorage.getItem('access_token');
+        
+        if (storedUser && accessToken) {
+          // 验证token是否有效
+          console.log('AuthContext：检查token有效性...');
+          const isValid = await checkTokenValidity();
+          
+          if (isValid) {
+            console.log('AuthContext：Token有效，设置用户信息');
+            setUser(JSON.parse(storedUser));
+            // 启动活动监听器
+            getActivityMonitor().start();
+          } else {
+            console.log('AuthContext：Token无效，清除用户信息并跳转到登录页面');
+            // Token无效，清除用户信息并跳转到登录页面
+            handleTokenExpired();
+          }
+        } else {
+          console.log('AuthContext：未找到用户信息或token');
         }
       } catch (err) {
-        console.error('Failed to parse stored user:', err);
+        console.error('AuthContext：检查用户信息失败:', err);
+        // 发生错误时，清除可能损坏的数据
+        handleTokenExpired();
       } finally {
         setLoading(false);
       }
@@ -62,6 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       document.cookie = `user=${JSON.stringify(userData)}; path=/; max-age=86400; samesite=strict`;
       
       setUser(userData);
+      
+      // 启动活动监听器
+      getActivityMonitor().start();
+      
       router.push('/');
     } catch (error) {
       if (error instanceof Error) {
@@ -75,8 +101,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    console.log('AuthContext：用户登出');
+    
+    // 停止活动监听器
+    getActivityMonitor().stopMonitoring();
+    
     localStorage.removeItem('user');
+    localStorage.removeItem('access_token');
     document.cookie = 'user=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     setUser(null);
     router.push('/login');
   };

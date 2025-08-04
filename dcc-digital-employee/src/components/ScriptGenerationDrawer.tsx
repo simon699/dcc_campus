@@ -20,9 +20,17 @@ interface TagItem {
   values: string[];
 }
 
+interface SceneTag {
+  id: number;
+  script_id: string;
+  tag_name: string;
+  tag_detail: string;
+  tags: string;
+}
+
 interface Scene {
   id: number;
-  scene_id: string;
+  script_id: string;
   scene_name: string;
   scene_detail: string;
   scene_status: number;
@@ -42,7 +50,7 @@ interface Scene {
   dialogue_flow: string;
   dialogue_constraint: string;
   dialogue_opening_prompt: string;
-  scene_tags: any[];
+  scene_tags: SceneTag[];
 }
 
 interface ScriptGenerationDrawerProps {
@@ -50,6 +58,7 @@ interface ScriptGenerationDrawerProps {
   onClose: () => void;
   selectedTask?: Task;
   onBackToTaskDetail?: () => void;
+  onScriptConfigured?: (scene: Scene) => void;
 }
 
 type StepType = 'script_config' | 'generating_script' | 'script_complete';
@@ -65,7 +74,7 @@ const filterConditionMap: { [key: string]: string } = {
   'is_arrive': '是否到店'
 };
 
-export default function ScriptGenerationDrawer({ isOpen, onClose, selectedTask, onBackToTaskDetail }: ScriptGenerationDrawerProps) {
+export default function ScriptGenerationDrawer({ isOpen, onClose, selectedTask, onBackToTaskDetail, onScriptConfigured }: ScriptGenerationDrawerProps) {
   const [currentStep, setCurrentStep] = useState<StepType>('script_config');
   const [localSelectedTask, setLocalSelectedTask] = useState<Task | undefined>(selectedTask);
   const [selectedScriptScene, setSelectedScriptScene] = useState<string>('official_scenes');
@@ -79,7 +88,7 @@ export default function ScriptGenerationDrawer({ isOpen, onClose, selectedTask, 
     dialogue_flow: '',
     dialogue_constraint: '',
     bot_name: '',
-    bot_post: '',
+    bot_post: '电销专员',
     bot_age: '',
     bot_style: ''
   });
@@ -112,6 +121,27 @@ export default function ScriptGenerationDrawer({ isOpen, onClose, selectedTask, 
     referralSource: '',
     customNotes: ''
   });
+  // 机器人职位选项
+  const [botPositions, setBotPositions] = useState([
+    { id: '1', name: '电销专员', description: '专业的电话销售专员' },
+    { id: '2', name: 'DCC经理', description: '数字客户中心经理' },
+    { id: '3', name: '销售顾问', description: '专业的销售顾问' }
+  ]);
+  const [selectedBotPosition, setSelectedBotPosition] = useState('1'); // 默认选中电销专员
+  const [customBotPosition, setCustomBotPosition] = useState('');
+
+  // 机器人沟通风格选项
+  const [botCommunicationStyles, setBotCommunicationStyles] = useState([
+    { id: '1', name: '亲切', description: '亲切友好的沟通风格' },
+    { id: '2', name: '自然', description: '自然流畅的沟通风格' },
+    { id: '3', name: '口语化', description: '口语化的表达方式' },
+    { id: '4', name: '专业', description: '专业严谨的沟通风格' },
+    { id: '5', name: '活泼', description: '活泼开朗的沟通风格' },
+    { id: '6', name: '严肃', description: '严肃认真的沟通风格' }
+  ]);
+  const [selectedBotStyles, setSelectedBotStyles] = useState<string[]>([]); // 支持多选
+  const [customBotStyle, setCustomBotStyle] = useState('');
+
   const [identities, setIdentities] = useState([
     { id: '1', name: '专业顾问', description: '以专业知识和经验为客户提供建议' },
     { id: '2', name: '朋友式销售', description: '以朋友的身份与客户建立信任关系' },
@@ -128,11 +158,7 @@ export default function ScriptGenerationDrawer({ isOpen, onClose, selectedTask, 
   const [selectedCommunicationStyle, setSelectedCommunicationStyle] = useState<string>('');
   const [customIdentity, setCustomIdentity] = useState('');
   const [customCommunicationStyle, setCustomCommunicationStyle] = useState('');
-  const [tags, setTags] = useState<TagItem[]>([
-    { id: '1', name: '产品特性', description: '突出产品的主要特性和优势', values: ['高性能', '可靠性', '创新技术'] },
-    { id: '2', name: '客户痛点', description: '针对客户的具体痛点提供解决方案', values: ['成本控制', '效率提升', '质量保证'] },
-    { id: '3', name: '竞争优势', description: '与竞争对手相比的独特优势', values: ['技术领先', '服务优质', '价格优势'] }
-  ]);
+  const [tags, setTags] = useState<TagItem[]>([]);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generatedScript, setGeneratedScript] = useState('');
 
@@ -257,6 +283,12 @@ export default function ScriptGenerationDrawer({ isOpen, onClose, selectedTask, 
         if (prev >= 100) {
           clearInterval(interval);
           setCurrentStep('script_complete');
+          // 使用setTimeout避免在渲染过程中调用回调
+          if (onScriptConfigured && selectedScene) {
+            setTimeout(() => {
+              onScriptConfigured(selectedScene);
+            }, 0);
+          }
           setGeneratedScript(`
 # 个性化话术生成结果
 
@@ -333,10 +365,14 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
       dialogue_flow: '',
       dialogue_constraint: '',
       bot_name: '',
-      bot_post: '',
+      bot_post: '电销专员',
       bot_age: '',
       bot_style: ''
     });
+    setSelectedBotPosition('1');
+    setCustomBotPosition('');
+    setSelectedBotStyles([]);
+    setCustomBotStyle('');
     setSelectedScene(null);
     setScriptConfig({
       customerName: '',
@@ -364,11 +400,7 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
     setSelectedCommunicationStyle('');
     setCustomIdentity('');
     setCustomCommunicationStyle('');
-    setTags([
-      { id: '1', name: '产品特性', description: '突出产品的主要特性和优势', values: ['高性能', '可靠性', '创新技术'] },
-      { id: '2', name: '客户痛点', description: '针对客户的具体痛点提供解决方案', values: ['成本控制', '效率提升', '质量保证'] },
-      { id: '3', name: '竞争优势', description: '与竞争对手相比的独特优势', values: ['技术领先', '服务优质', '价格优势'] }
-    ]);
+    setTags([]);
     onClose();
   };
 
@@ -406,6 +438,71 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
     }
   };
 
+  // 处理机器人职位选择
+  const handleBotPositionChange = (positionId: string) => {
+    setSelectedBotPosition(positionId);
+    const selectedPosition = botPositions.find(pos => pos.id === positionId);
+    if (selectedPosition) {
+      setCustomScene(prev => ({ ...prev, bot_post: selectedPosition.name }));
+    }
+  };
+
+  // 添加自定义机器人职位
+  const handleAddCustomBotPosition = () => {
+    if (customBotPosition.trim()) {
+      const newPosition = {
+        id: Date.now().toString(),
+        name: customBotPosition,
+        description: '自定义机器人职位'
+      };
+      setBotPositions(prev => [...prev, newPosition]);
+      setSelectedBotPosition(newPosition.id);
+      setCustomScene(prev => ({ ...prev, bot_post: customBotPosition }));
+      setCustomBotPosition('');
+    }
+  };
+
+  // 处理机器人沟通风格选择（多选）
+  const handleBotStyleChange = (styleId: string) => {
+    setSelectedBotStyles(prev => {
+      if (prev.includes(styleId)) {
+        return prev.filter(id => id !== styleId);
+      } else {
+        return [...prev, styleId];
+      }
+    });
+    
+    // 更新customScene中的bot_style
+    const updatedStyles = selectedBotStyles.includes(styleId) 
+      ? selectedBotStyles.filter(id => id !== styleId)
+      : [...selectedBotStyles, styleId];
+    
+    const selectedStyleNames = updatedStyles.map(id => {
+      const style = botCommunicationStyles.find(s => s.id === id);
+      return style ? style.name : '';
+    }).filter(name => name);
+    
+    setCustomScene(prev => ({ ...prev, bot_style: selectedStyleNames.join('; ') }));
+  };
+
+  // 添加自定义机器人沟通风格
+  const handleAddCustomBotStyle = () => {
+    if (customBotStyle.trim()) {
+      const newStyle = {
+        id: Date.now().toString(),
+        name: customBotStyle,
+        description: '自定义沟通风格'
+      };
+      setBotCommunicationStyles(prev => [...prev, newStyle]);
+      setSelectedBotStyles(prev => [...prev, newStyle.id]);
+      setCustomScene(prev => ({ 
+        ...prev, 
+        bot_style: prev.bot_style ? `${prev.bot_style}; ${customBotStyle}` : customBotStyle 
+      }));
+      setCustomBotStyle('');
+    }
+  };
+
   const handleAddTag = () => {
     const newTag: TagItem = {
       id: Date.now().toString(),
@@ -440,31 +537,148 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
     setTags(prev => prev.filter(tag => tag.id !== tagId));
   };
 
-  const handleSaveCustomScene = () => {
-    if (customScene.name.trim() && customScene.description.trim()) {
-      // 这里可以保存自定义场景到本地存储或发送到服务器
-      console.log(isEditingScene ? '更新自定义场景:' : '保存自定义场景:', customScene);
-      alert(isEditingScene ? '场景更新成功！' : '自定义场景保存成功！');
+  const handleSaveCustomScene = async () => {
+    // 校验必填项
+    const errors: string[] = [];
+    
+    if (!customScene.name.trim()) {
+      errors.push('场景名称');
+    }
+    
+    if (!customScene.bot_name.trim()) {
+      errors.push('机器人姓名');
+    }
+    
+    if (!customScene.dialogue_target.trim()) {
+      errors.push('对话目的');
+    }
+    
+    if (!customScene.dialogue_opening_prompt.trim()) {
+      errors.push('开场白');
+    }
+    
+    if (!customScene.dialogue_flow.trim()) {
+      errors.push('对话流程');
+    }
+    
+    if (tags.length === 0) {
+      errors.push('标签组（至少添加一个标签组）');
+    }
+    
+    if (errors.length > 0) {
+      alert(`请填写以下必填项：\n${errors.join('\n')}`);
+      return;
+    }
+    
+    try {
+      // 准备场景数据
+      const sceneData = {
+        scene_name: customScene.name,
+        scene_detail: customScene.description,
+        scene_type: 2, // 自定义场景
+        bot_name: customScene.bot_name,
+        bot_sex: customScene.bot_age ? 1 : undefined, // 简化处理
+        bot_age: parseInt(customScene.bot_age) || undefined,
+        bot_post: customScene.bot_post,
+        bot_style: customScene.bot_style,
+        dialogue_target: customScene.dialogue_target,
+        dialogue_bg: customScene.dialogue_bg,
+        dialogue_skill: customScene.dialogue_skill,
+        dialogue_flow: customScene.dialogue_flow,
+        dialogue_constraint: customScene.dialogue_constraint,
+        dialogue_opening_prompt: customScene.dialogue_opening_prompt,
+        scene_tags: tags.map(tag => ({
+          tag_name: tag.name,
+          tag_detail: tag.description,
+          tags: tag.values.join('; ')
+        }))
+      };
+
+      // 调用API创建场景
+      const response = await scenesAPI.createScene(sceneData);
       
-      if (isEditingScene) {
-        // 如果是编辑模式，更新选中的场景
-        setSelectedScene(prev => prev ? {
-          ...prev,
-          scene_name: customScene.name,
-          scene_detail: customScene.description,
-          dialogue_target: customScene.dialogue_target,
-          dialogue_opening_prompt: customScene.dialogue_opening_prompt,
-          dialogue_bg: customScene.dialogue_bg,
-          dialogue_skill: customScene.dialogue_skill,
-          dialogue_flow: customScene.dialogue_flow,
-          dialogue_constraint: customScene.dialogue_constraint,
-          bot_name: customScene.bot_name,
-          bot_post: customScene.bot_post,
-          bot_age: parseInt(customScene.bot_age) || 0,
-          bot_style: customScene.bot_style
-        } : null);
-        setIsEditingScene(false);
+      if (response.status === 'success') {
+        alert(isEditingScene ? '场景更新成功！' : '自定义场景创建成功！');
+        
+        if (isEditingScene) {
+          // 如果是编辑模式，更新选中的场景
+          setSelectedScene(prev => prev ? {
+            ...prev,
+            scene_name: customScene.name,
+            scene_detail: customScene.description,
+            dialogue_target: customScene.dialogue_target,
+            dialogue_opening_prompt: customScene.dialogue_opening_prompt,
+            dialogue_bg: customScene.dialogue_bg,
+            dialogue_skill: customScene.dialogue_skill,
+            dialogue_flow: customScene.dialogue_flow,
+            dialogue_constraint: customScene.dialogue_constraint,
+            bot_name: customScene.bot_name,
+            bot_post: customScene.bot_post,
+            bot_age: parseInt(customScene.bot_age) || 0,
+            bot_style: customScene.bot_style
+          } : null);
+          setIsEditingScene(false);
+        } else {
+          // 如果是新建模式，创建新场景对象并设置为选中场景
+          const newScene: Scene = {
+            id: Date.now(), // 临时ID
+            script_id: response.data.script_id, // 使用API返回的script_id
+            scene_name: customScene.name,
+            scene_detail: customScene.description,
+            scene_status: 1,
+            scene_type: 2, // 自定义场景
+            scene_create_user_id: '',
+            scene_create_user_name: '',
+            scene_create_org_id: '',
+            scene_create_time: new Date().toISOString(),
+            bot_name: customScene.bot_name,
+            bot_sex: null,
+            bot_age: parseInt(customScene.bot_age) || 0,
+            bot_post: customScene.bot_post,
+            bot_style: customScene.bot_style,
+            dialogue_target: customScene.dialogue_target,
+            dialogue_bg: customScene.dialogue_bg,
+            dialogue_skill: customScene.dialogue_skill,
+            dialogue_flow: customScene.dialogue_flow,
+            dialogue_constraint: customScene.dialogue_constraint,
+            dialogue_opening_prompt: customScene.dialogue_opening_prompt,
+            scene_tags: tags.map(tag => ({
+              id: Date.now() + Math.random(),
+              script_id: response.data.script_id,
+              tag_name: tag.name,
+              tag_detail: tag.description,
+              tags: tag.values.join('; ')
+            }))
+          };
+          
+          setSelectedScene(newScene);
+          setSelectedScriptScene('scene_selected');
+          
+          // 重置表单
+          setCustomScene({
+            name: '',
+            description: '',
+            dialogue_target: '',
+            dialogue_opening_prompt: '',
+            dialogue_bg: '',
+            dialogue_skill: '',
+            dialogue_flow: '',
+            dialogue_constraint: '',
+            bot_name: '',
+            bot_post: '电销专员',
+            bot_age: '',
+            bot_style: ''
+          });
+          setSelectedBotStyles([]);
+          setSelectedBotPosition('1');
+          setTags([]);
+        }
+      } else {
+        alert('创建场景失败：' + response.message);
       }
+    } catch (error) {
+      console.error('创建场景错误:', error);
+      alert('创建场景失败，请重试');
     }
   };
 
@@ -504,6 +718,86 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
         bot_style: selectedScene.bot_style || ''
       });
     }
+  };
+
+  // 处理复制场景
+  const handleCopyScene = (scene: Scene, e: React.MouseEvent) => {
+    e.stopPropagation(); // 阻止事件冒泡，避免触发场景选择
+    
+    // 准备复制的场景数据
+    const copiedSceneData = {
+      scene_name: `${scene.scene_name} - 副本`,
+      scene_detail: scene.scene_detail,
+      scene_type: 2, // 设置为自定义场景
+      bot_name: scene.bot_name,
+      bot_sex: scene.bot_sex ? parseInt(scene.bot_sex) : undefined,
+      bot_age: scene.bot_age,
+      bot_post: scene.bot_post,
+      bot_style: scene.bot_style,
+      dialogue_target: scene.dialogue_target,
+      dialogue_bg: scene.dialogue_bg,
+      dialogue_skill: scene.dialogue_skill,
+      dialogue_flow: scene.dialogue_flow,
+      dialogue_constraint: scene.dialogue_constraint,
+      dialogue_opening_prompt: scene.dialogue_opening_prompt,
+      scene_tags: scene.scene_tags?.map(tag => ({
+        tag_name: tag.tag_name,
+        tag_detail: tag.tag_detail,
+        tags: tag.tags
+      })) || []
+    };
+
+    // 解析机器人沟通风格并设置选中状态
+    let botStyleNames: string[] = [];
+    if (scene.bot_style) {
+      // 使用分号分割机器人沟通风格
+      botStyleNames = scene.bot_style.split(';').map(s => s.trim()).filter(s => s);
+    }
+    
+    const selectedStyleIds = botCommunicationStyles
+      .filter(style => botStyleNames.includes(style.name))
+      .map(style => style.id);
+
+    // 解析机器人职位并设置选中状态
+    const selectedPosition = botPositions.find(pos => pos.name === scene.bot_post);
+    const selectedPositionId = selectedPosition ? selectedPosition.id : '1'; // 默认选中电销专员
+
+    // 解析场景标签并转换为标签组
+    const sceneTags = scene.scene_tags || [];
+    const convertedTags: TagItem[] = sceneTags.map((tag, index) => ({
+      id: `tag_${index}`,
+      name: tag.tag_name,
+      description: tag.tag_detail,
+      values: tag.tags ? tag.tags.split(';').map(v => v.trim()).filter(v => v) : []
+    }));
+
+    // 跳转到创建新场景页面
+    setCustomScene({
+      name: copiedSceneData.scene_name,
+      description: copiedSceneData.scene_detail,
+      dialogue_target: copiedSceneData.dialogue_target,
+      dialogue_opening_prompt: copiedSceneData.dialogue_opening_prompt,
+      dialogue_bg: copiedSceneData.dialogue_bg,
+      dialogue_skill: copiedSceneData.dialogue_skill || '',
+      dialogue_flow: copiedSceneData.dialogue_flow,
+      dialogue_constraint: copiedSceneData.dialogue_constraint,
+      bot_name: copiedSceneData.bot_name,
+      bot_post: copiedSceneData.bot_post,
+      bot_age: copiedSceneData.bot_age?.toString() || '',
+      bot_style: copiedSceneData.bot_style || ''
+    });
+    
+    // 设置机器人沟通风格的选中状态
+    setSelectedBotStyles(selectedStyleIds);
+    
+    // 设置机器人职位的选中状态
+    setSelectedBotPosition(selectedPositionId);
+    
+    // 设置标签组
+    setTags(convertedTags);
+    
+    setSelectedScriptScene('create_custom');
+    setIsEditingScene(false);
   };
 
   const getSceneTypeText = (type: number) => {
@@ -552,7 +846,7 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                     <span className="text-gray-300">筛选条件:</span>
                     <div className="text-white mt-1">
                       {formatFilterConditions(localSelectedTask?.conditions, localSelectedTask?.size_desc).map((condition, index) => (
-                        <div key={index} className="text-sm">{condition}</div>
+                        <div key={`condition-${index}-${condition}`} className="text-sm">{condition}</div>
                       ))}
                     </div>
                   </div>
@@ -648,7 +942,7 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                           .map((scene) => (
                             <div
                               key={scene.id}
-                              className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                              className={`p-4 border rounded-lg cursor-pointer transition-colors relative ${
                                 selectedScene?.id === scene.id
                                   ? 'bg-blue-500/20 border-blue-500/50'
                                   : 'bg-white/5 border-white/10 hover:bg-white/10'
@@ -657,7 +951,7 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                             >
                               <div className="flex items-start justify-between mb-3">
                                 <h4 className="text-white font-medium">{scene.scene_name}</h4>
-                                <div className="flex space-x-2">
+                                <div className="flex items-center space-x-2">
                                   <span className={`px-2 py-1 rounded-full text-xs ${
                                     scene.scene_type === 1 
                                       ? 'bg-blue-500/20 text-blue-300' 
@@ -672,6 +966,18 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                                   }`}>
                                     {getSceneStatusText(scene.scene_status)}
                                   </span>
+                                  {/* 复制按钮 - 只对官方场景显示 */}
+                                  {scene.scene_type === 1 && (
+                                    <button
+                                      onClick={(e) => handleCopyScene(scene, e)}
+                                      className="p-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-blue-200 rounded-lg transition-colors"
+                                      title="复制场景"
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                      </svg>
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                               
@@ -688,6 +994,23 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                                   <span className="text-gray-400">开场白:</span>
                                   <p className="text-white mt-1 line-clamp-2">{scene.dialogue_opening_prompt}</p>
                                 </div>
+                                
+                                {/* 场景标签展示 */}
+                                {scene.scene_tags && scene.scene_tags.length > 0 && (
+                                  <div>
+                                    <span className="text-gray-400">标签:</span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {scene.scene_tags.map((tag, index) => (
+                                        <span
+                                          key={`tag-${index}-${tag.tag_name}`}
+                                          className="px-2 py-1 bg-purple-500/20 text-purple-300 text-xs rounded"
+                                        >
+                                          {tag.tag_name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -714,11 +1037,18 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                 {(selectedScriptScene === 'create_custom' || isEditingScene) && (
                   <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-lg">
                     <h4 className="text-white font-medium mb-4">{isEditingScene ? '编辑场景' : '创建新场景配置'}</h4>
+                    <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                      <p className="text-yellow-300 text-sm">
+                        <span className="text-red-400">*</span> 为必填项，请确保填写完整
+                      </p>
+                    </div>
                     
                     {/* 基本信息 */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                       <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">场景名称</label>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          场景名称 <span className="text-red-400">*</span>
+                        </label>
                         <input
                           type="text"
                           value={customScene.name}
@@ -744,7 +1074,9 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                       <h5 className="text-white font-medium mb-3">机器人信息</h5>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">机器人姓名</label>
+                          <label className="block text-sm font-medium text-gray-300 mb-2">
+                            机器人姓名 <span className="text-red-400">*</span>
+                          </label>
                           <input
                             type="text"
                             value={customScene.bot_name}
@@ -755,13 +1087,38 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-300 mb-2">机器人职位</label>
-                          <input
-                            type="text"
-                            value={customScene.bot_post}
-                            onChange={(e) => setCustomScene(prev => ({ ...prev, bot_post: e.target.value }))}
-                            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                            placeholder="请输入机器人职位"
-                          />
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap gap-2">
+                              {botPositions.map((position) => (
+                                <button
+                                  key={position.id}
+                                  onClick={() => handleBotPositionChange(position.id)}
+                                  className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                                    selectedBotPosition === position.id
+                                      ? 'bg-blue-500 text-white'
+                                      : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                                  }`}
+                                >
+                                  {position.name}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="text"
+                                value={customBotPosition}
+                                onChange={(e) => setCustomBotPosition(e.target.value)}
+                                className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                                placeholder="自定义职位"
+                              />
+                              <button
+                                onClick={handleAddCustomBotPosition}
+                                className="px-3 py-2 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 rounded-lg text-sm transition-colors"
+                              >
+                                添加
+                              </button>
+                            </div>
+                          </div>
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-300 mb-2">机器人年龄</label>
@@ -774,14 +1131,39 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">机器人风格</label>
-                          <input
-                            type="text"
-                            value={customScene.bot_style}
-                            onChange={(e) => setCustomScene(prev => ({ ...prev, bot_style: e.target.value }))}
-                            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                            placeholder="请输入机器人风格"
-                          />
+                          <label className="block text-sm font-medium text-gray-300 mb-2">机器人沟通风格</label>
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap gap-2">
+                              {botCommunicationStyles.map((style) => (
+                                <button
+                                  key={style.id}
+                                  onClick={() => handleBotStyleChange(style.id)}
+                                  className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                                    selectedBotStyles.includes(style.id)
+                                      ? 'bg-green-500 text-white'
+                                      : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                                  }`}
+                                >
+                                  {style.name}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="text"
+                                value={customBotStyle}
+                                onChange={(e) => setCustomBotStyle(e.target.value)}
+                                className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                                placeholder="自定义风格"
+                              />
+                              <button
+                                onClick={handleAddCustomBotStyle}
+                                className="px-3 py-2 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 rounded-lg text-sm transition-colors"
+                              >
+                                添加
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -789,7 +1171,9 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                     {/* 对话配置 */}
                     <div className="space-y-4 mb-6">
                       <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">对话目的</label>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          对话目的 <span className="text-red-400">*</span>
+                        </label>
                         <textarea
                           value={customScene.dialogue_target}
                           onChange={(e) => setCustomScene(prev => ({ ...prev, dialogue_target: e.target.value }))}
@@ -800,7 +1184,9 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                       </div>
                       
                       <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">开场白</label>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          开场白 <span className="text-red-400">*</span>
+                        </label>
                         <textarea
                           value={customScene.dialogue_opening_prompt}
                           onChange={(e) => setCustomScene(prev => ({ ...prev, dialogue_opening_prompt: e.target.value }))}
@@ -833,7 +1219,9 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                       </div>
                       
                       <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">对话流程</label>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          对话流程 <span className="text-red-400">*</span>
+                        </label>
                         <textarea
                           value={customScene.dialogue_flow}
                           onChange={(e) => setCustomScene(prev => ({ ...prev, dialogue_flow: e.target.value }))}
@@ -858,7 +1246,9 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                     {/* 标签组 */}
                     <div className="mb-6">
                       <div className="flex items-center justify-between mb-3">
-                        <h5 className="text-white font-medium">标签组</h5>
+                        <h5 className="text-white font-medium">
+                          标签组 <span className="text-red-400">*</span>
+                        </h5>
                         <button
                           onClick={handleAddTag}
                           className="px-3 py-1 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 rounded-lg text-sm transition-colors"
@@ -866,84 +1256,91 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                           + 添加标签组
                         </button>
                       </div>
-                      <div className="space-y-4">
-                        {tags.map((tag) => (
-                          <div key={tag.id} className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                            <div className="flex items-center justify-between mb-3">
-                              <input
-                                type="text"
-                                value={tag.name}
-                                onChange={(e) => handleUpdateTag(tag.id, 'name', e.target.value)}
-                                className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 mr-2"
-                                placeholder="标签名称"
-                              />
-                              <button
-                                onClick={() => handleRemoveTag(tag.id)}
-                                className="text-red-400 hover:text-red-300 transition-colors"
-                              >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
-                            </div>
-                            <div className="mb-3">
-                              <input
-                                type="text"
-                                value={tag.description}
-                                onChange={(e) => handleUpdateTag(tag.id, 'description', e.target.value)}
-                                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                                placeholder="标签描述"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <div className="flex items-center space-x-2">
+                      {tags.length === 0 ? (
+                        <div className="text-center py-8 bg-white/5 border border-white/10 rounded-lg">
+                          <div className="text-gray-400 mb-2">暂无标签组</div>
+                          <p className="text-gray-500 text-sm">点击"添加标签组"按钮来创建新的标签组</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {tags.map((tag) => (
+                            <div key={tag.id} className="p-4 bg-white/5 border border-white/10 rounded-lg">
+                              <div className="flex items-center justify-between mb-3">
                                 <input
                                   type="text"
-                                  placeholder="添加标签值"
-                                  className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                                  onKeyPress={(e) => {
-                                    if (e.key === 'Enter') {
-                                      const target = e.target as HTMLInputElement;
-                                      handleAddTagValue(tag.id, target.value);
-                                      target.value = '';
-                                    }
-                                  }}
+                                  value={tag.name}
+                                  onChange={(e) => handleUpdateTag(tag.id, 'name', e.target.value)}
+                                  className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 mr-2"
+                                  placeholder="标签名称"
                                 />
                                 <button
-                                  onClick={() => {
-                                    const input = document.querySelector(`input[placeholder="添加标签值"]`) as HTMLInputElement;
-                                    if (input) {
-                                      handleAddTagValue(tag.id, input.value);
-                                      input.value = '';
-                                    }
-                                  }}
-                                  className="px-3 py-2 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 rounded-lg text-sm transition-colors"
+                                  onClick={() => handleRemoveTag(tag.id)}
+                                  className="text-red-400 hover:text-red-300 transition-colors"
                                 >
-                                  添加
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
                                 </button>
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                {tag.values.map((value, index) => (
-                                  <span
-                                    key={index}
-                                    className="px-2 py-1 bg-purple-500/20 text-purple-300 rounded-lg text-sm flex items-center"
+                              <div className="mb-3">
+                                <input
+                                  type="text"
+                                  value={tag.description}
+                                  onChange={(e) => handleUpdateTag(tag.id, 'description', e.target.value)}
+                                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                                  placeholder="标签描述"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="text"
+                                    placeholder="添加标签值"
+                                    className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                                    onKeyPress={(e) => {
+                                      if (e.key === 'Enter') {
+                                        const target = e.target as HTMLInputElement;
+                                        handleAddTagValue(tag.id, target.value);
+                                        target.value = '';
+                                      }
+                                    }}
+                                  />
+                                  <button
+                                    onClick={() => {
+                                      const input = document.querySelector(`input[placeholder="添加标签值"]`) as HTMLInputElement;
+                                      if (input) {
+                                        handleAddTagValue(tag.id, input.value);
+                                        input.value = '';
+                                      }
+                                    }}
+                                    className="px-3 py-2 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 rounded-lg text-sm transition-colors"
                                   >
-                                    {value}
-                                    <button
-                                      onClick={() => handleRemoveTagValue(tag.id, index)}
-                                      className="ml-1 text-purple-400 hover:text-purple-300"
+                                    添加
+                                  </button>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {tag.values.map((value, index) => (
+                                    <span
+                                      key={`value-${index}-${value}`}
+                                      className="px-2 py-1 bg-purple-500/20 text-purple-300 rounded-lg text-sm flex items-center"
                                     >
-                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                                      </svg>
-                                    </button>
-                                  </span>
-                                ))}
+                                      {value}
+                                      <button
+                                        onClick={() => handleRemoveTagValue(tag.id, index)}
+                                        className="ml-1 text-purple-400 hover:text-purple-300"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -983,7 +1380,7 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                         <button
                           onClick={() => {
                             setSelectedScene(null);
-                            setSelectedScriptScene('');
+                            setSelectedScriptScene(selectedScene.scene_type === 1 ? 'official_scenes' : 'custom_scenes');
                             setIsEditingScene(false);
                           }}
                           className="text-gray-400 hover:text-white transition-colors"
@@ -1032,6 +1429,35 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                         <span className="text-gray-400">对话约束:</span>
                         <p className="text-white mt-1">{selectedScene.dialogue_constraint}</p>
                       </div>
+                      
+                      {/* 场景标签展示 */}
+                      {selectedScene.scene_tags && selectedScene.scene_tags.length > 0 && (
+                        <div className="md:col-span-2">
+                          <span className="text-gray-400">场景标签:</span>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {selectedScene.scene_tags.map((tag, index) => (
+                              <div key={`selected-tag-${index}-${tag.tag_name}`} className="bg-purple-500/20 border border-purple-500/30 rounded-lg p-2">
+                                <div className="text-purple-300 font-medium text-sm mb-1">{tag.tag_name}</div>
+                                {tag.tag_detail && (
+                                  <div className="text-gray-300 text-xs mb-1">{tag.tag_detail}</div>
+                                )}
+                                {tag.tags && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {tag.tags.split(',').map((tagValue, tagIndex) => (
+                                      <span
+                                        key={`tag-value-${tagIndex}-${tagValue.trim()}`}
+                                        className="px-2 py-1 bg-purple-500/30 text-purple-200 text-xs rounded"
+                                      >
+                                        {tagValue.trim()}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1039,135 +1465,7 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
 
 
 
-              {/* 话术配置设置 */}
-              {((selectedScriptScene === 'scene_selected' && selectedScene?.scene_type !== 1) || selectedScriptScene === 'create_custom' || isEditingScene) && (
-                <div className="mb-6 min-h-[500px]">
-                  <h3 className="text-lg font-semibold text-white mb-4">
-                    {selectedScriptScene === 'scene_selected' ? '话术配置设置' : '场景配置'}
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* 客户信息 */}
-                    <div className="space-y-4">
-                      <h4 className="text-white font-medium">客户信息</h4>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">客户自称</label>
-                        <input
-                          type="text"
-                          value={scriptConfig.customerName}
-                          onChange={(e) => setScriptConfig(prev => ({ ...prev, customerName: e.target.value }))}
-                          className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                          placeholder="请输入客户自称"
-                        />
-                      </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">性别</label>
-                        <select
-                          value={scriptConfig.gender}
-                          onChange={(e) => setScriptConfig(prev => ({ ...prev, gender: e.target.value }))}
-                          className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                        >
-                          <option value="male">男</option>
-                          <option value="female">女</option>
-                          <option value="unknown">不确定</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">年龄</label>
-                        <input
-                          type="number"
-                          value={scriptConfig.age}
-                          onChange={(e) => setScriptConfig(prev => ({ ...prev, age: e.target.value }))}
-                          className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                          placeholder="请输入年龄"
-                        />
-                      </div>
-                    </div>
-
-                    {/* 身份和沟通风格 */}
-                    <div className="space-y-4">
-                      <h4 className="text-white font-medium">身份和沟通风格</h4>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">身份选择</label>
-                        <div className="flex flex-wrap gap-2">
-                          {identities.map((identity) => (
-                            <button
-                              key={identity.id}
-                              onClick={() => handleIdentityChange(identity.id)}
-                              className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                                selectedIdentity === identity.id
-                                  ? 'bg-blue-500 text-white'
-                                  : 'bg-white/10 text-gray-300 hover:bg-white/20'
-                              }`}
-                            >
-                              {identity.name}
-                            </button>
-                          ))}
-                          <button
-                            onClick={() => handleAddCustomIdentity()}
-                            className="px-3 py-1 rounded-full text-sm bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors"
-                          >
-                            + 自定义
-                          </button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">沟通风格</label>
-                        <div className="flex flex-wrap gap-2">
-                          {communicationStyles.map((style) => (
-                            <button
-                              key={style.id}
-                              onClick={() => handleCommunicationStyleChange(style.id)}
-                              className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                                selectedCommunicationStyle === style.id
-                                  ? 'bg-green-500 text-white'
-                                  : 'bg-white/10 text-gray-300 hover:bg-white/20'
-                              }`}
-                            >
-                              {style.name}
-                            </button>
-                          ))}
-                          <button
-                            onClick={() => handleAddCustomCommunicationStyle()}
-                            className="px-3 py-1 rounded-full text-sm bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors"
-                          >
-                            + 自定义
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 目标和技能 */}
-                  <div className="mt-6 space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">沟通目标</label>
-                      <textarea
-                        value={scriptConfig.goals}
-                        onChange={(e) => setScriptConfig(prev => ({ ...prev, goals: e.target.value }))}
-                        className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                        placeholder="描述本次沟通的主要目标"
-                        rows={3}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">所需技能</label>
-                      <textarea
-                        value={scriptConfig.skills}
-                        onChange={(e) => setScriptConfig(prev => ({ ...prev, skills: e.target.value }))}
-                        className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                        placeholder="描述需要展现的技能或能力"
-                        rows={3}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
           
@@ -1238,9 +1536,9 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
           )}
         </div>
         
-        <div className="p-6 pt-0 border-t border-white/10">
+        <div className="p-6 pt-0 pb-4 border-t border-white/10 mt-auto">
           {currentStep === 'script_config' && (
-            <div className="flex justify-between">
+            <div className="flex justify-between mt-4">
               <button onClick={onBackToTaskDetail} className="px-4 py-2 text-gray-300 hover:text-white transition-colors">
                 返回任务列表
               </button>
@@ -1252,7 +1550,16 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                   <>
                     <button
                       onClick={handleGenerateScript}
-                      disabled={(selectedScriptScene === 'create_custom' || isEditingScene) && !customScene.name.trim()}
+                      disabled={
+                        (selectedScriptScene === 'create_custom' || isEditingScene) && (
+                          !customScene.name.trim() || 
+                          !customScene.bot_name.trim() || 
+                          !customScene.dialogue_target.trim() || 
+                          !customScene.dialogue_opening_prompt.trim() || 
+                          !customScene.dialogue_flow.trim() || 
+                          tags.length === 0
+                        )
+                      }
                       className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium rounded-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                     >
                       生成话术
@@ -1260,7 +1567,14 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
                     {(selectedScriptScene === 'create_custom' || isEditingScene) && (
                       <button
                         onClick={handleSaveCustomScene}
-                        disabled={!customScene.name.trim() || !customScene.description.trim()}
+                        disabled={
+                          !customScene.name.trim() || 
+                          !customScene.bot_name.trim() || 
+                          !customScene.dialogue_target.trim() || 
+                          !customScene.dialogue_opening_prompt.trim() || 
+                          !customScene.dialogue_flow.trim() || 
+                          tags.length === 0
+                        }
                         className="px-6 py-2 bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-500 hover:to-blue-500 text-white font-medium rounded-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                       >
                         {isEditingScene ? '更新场景' : '保存场景'}
@@ -1281,7 +1595,7 @@ ${selectedScene && selectedScene.scene_tags ? selectedScene.scene_tags.map(tag =
           )}
           
           {currentStep === 'script_complete' && (
-            <div className="flex justify-center">
+            <div className="flex justify-center mt-4">
               <button onClick={handleClose} className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium rounded-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500/50">
                 完成
               </button>

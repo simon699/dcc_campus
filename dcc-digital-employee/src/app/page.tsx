@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { tasksAPI } from '../services/api';
+import { tasksAPI, checkTokenValidity } from '../services/api';
+import { setupTokenValidationOnVisibility } from '../utils/tokenUtils';
 import Header from '../components/Header';
 import CallRecordDrawer from '../components/CallRecordDrawer';
 import DccBindModal from '../components/DccBindModal';
@@ -12,6 +13,9 @@ import TaskSelectionDrawer from '../components/TaskSelectionDrawer';
 import ScriptGenerationDrawer from '../components/ScriptGenerationDrawer';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import TaskLeadsDrawer from '../components/TaskLeadsDrawer';
+import MonitorDrawer from '../components/MonitorDrawer';
+import FollowupModal from '../components/FollowupModal';
+import TaskSelectionModal from '../components/TaskSelectionModal';
 
 // 自定义动画样式
 const robotAnimations = `
@@ -148,7 +152,7 @@ export default function Home() {
     {
       id: 'followup',
       name: '跟进记录Agent',
-      description: '自动记录跟进情况，生成跟进报告',
+      description: '查看外呼任务完成情况和跟进记录',
       icon: '📝',
       status: 'idle',
       progress: 0,
@@ -174,6 +178,10 @@ export default function Home() {
   const [taskCreated, setTaskCreated] = useState(false);
   const [tasks, setTasks] = useState<any[]>([]);
   const [selectedTaskForScript, setSelectedTaskForScript] = useState<any>(null);
+  const [showMonitorDrawer, setShowMonitorDrawer] = useState(false);
+  const [showFollowupModal, setShowFollowupModal] = useState(false);
+  const [selectedTaskForFollowup, setSelectedTaskForFollowup] = useState<any>(null);
+  const [showTaskSelectionModal, setShowTaskSelectionModal] = useState(false);
 
   // 初始化质检数据
   useEffect(() => {
@@ -194,29 +202,137 @@ export default function Home() {
         id: 'call-2',
         leadName: '李四',
         phone: '139****5678',
-        callTime: '2024-01-25 15:15:10',
-        duration: '1分58秒',
-        status: 'success',
-        result: '客户表示考虑中，需要定期联系',
-        notes: '客户对价格敏感，需要提供优惠方案'
-      },
-      {
-        id: 'call-3',
-        leadName: '王五',
-        phone: '137****9012',
-        callTime: '2024-01-25 16:05:33',
-        duration: '3分12秒',
-        status: 'success',
-        result: '高价值客户，有强烈购买意向',
-        notes: 'VIP客户，需要优先处理'
+        callTime: '2024-01-25 15:20:10',
+        duration: '1分30秒',
+        status: 'no-answer',
+        result: '无人接听',
+        notes: '建议稍后重试'
       }
     ];
-
     setCallRecords(mockCallRecords);
   }, []);
 
+  // 定期检查任务完成状态
+  useEffect(() => {
+    const checkTaskCompletionInterval = setInterval(() => {
+      // 使用setTimeout避免在渲染过程中直接调用setState
+      setTimeout(async () => {
+        try {
+          const response = await tasksAPI.getCallTasksList();
+          if (response.status === 'success') {
+            const apiTasks = response.data.tasks || [];
+            for (const task of apiTasks) {
+              if (task.task_type === 2) { // 只检查正在外呼的任务
+                await checkTaskCompletion(task.id, task.task_type);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('定期检查任务完成状态失败:', error);
+        }
+      }, 0);
+    }, 30000); // 每30秒检查一次
+
+    return () => clearInterval(checkTaskCompletionInterval);
+  }, []);
+
+  // 获取任务统计数据
+  useEffect(() => {
+    const fetchTaskStatistics = async () => {
+      if (!isDccBound) return;
+      
+      try {
+        const response = await tasksAPI.getCallTasksStatistics();
+        if (response.status === 'success') {
+          const stats = response.data;
+          
+          // 使用setTimeout避免在渲染过程中直接调用setState
+          setTimeout(() => {
+            setRobots(prev => prev.map(robot => {
+              switch (robot.id) {
+                case 'task':
+                  return {
+                    ...robot,
+                    stats: {
+                      total: stats.task_agent.total,
+                      completed: stats.task_agent.created,
+                      current: stats.task_agent.total - stats.task_agent.created
+                    }
+                  };
+                case 'script':
+                  return {
+                    ...robot,
+                    stats: {
+                      total: stats.script_agent.total,
+                      completed: stats.script_agent.created,
+                      current: stats.script_agent.total - stats.script_agent.created
+                    }
+                  };
+                case 'calling':
+                  return {
+                    ...robot,
+                    stats: {
+                      total: stats.calling_agent.executing_tasks,
+                      completed: 0,
+                      current: stats.calling_agent.pending_calls
+                    },
+                    // 根据是否有执行中的任务来决定工作状态
+                    status: stats.calling_agent.executing_tasks > 0 ? 'working' : 'idle'
+                  };
+                case 'followup':
+                  return {
+                    ...robot,
+                    stats: {
+                      total: stats.followup_agent.completed_tasks,
+                      completed: stats.followup_agent.completed_calls,
+                      current: 0
+                    },
+                    // 跟进记录Agent与外呼Agent保持一致的工作状态
+                    status: stats.calling_agent.executing_tasks > 0 ? 'working' : 'idle'
+                  };
+                default:
+                  return robot;
+              }
+            }));
+          }, 0);
+        }
+      } catch (error) {
+        console.error('获取任务统计数据失败:', error);
+      }
+    };
+
+    fetchTaskStatistics();
+    
+    // 定期刷新统计数据以更新工作状态
+    const interval = setInterval(fetchTaskStatistics, 10000); // 每10秒刷新一次
+    
+    return () => clearInterval(interval);
+  }, [isDccBound]);
+
+  // 初始化token验证
   useEffect(() => {
     console.log("Home page mounted");
+    
+    // 设置页面可见性变化时的token验证
+    const cleanup = setupTokenValidationOnVisibility();
+    
+    // 页面加载时立即检查一次token
+    const checkTokenOnLoad = async () => {
+      try {
+        const isValid = await checkTokenValidity();
+        if (!isValid) {
+          console.log('页面加载时token验证失败');
+          return;
+        }
+        console.log('页面加载时token验证成功');
+      } catch (error) {
+        console.error('页面加载时token验证出错:', error);
+      }
+    };
+    
+    checkTokenOnLoad();
+    
+    return cleanup;
   }, []);
 
   // 检查DCC绑定状态
@@ -239,12 +355,12 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
-  // 模拟机器人工作状态
+  // 模拟机器人工作状态 - 对外呼Agent和跟进记录Agent
   useEffect(() => {
     const interval = setInterval(() => {
       setRobots(prev => prev.map(robot => {
-        // 所有机器人只有在开始外呼后才会随机工作
-        if (hasStartedCalling && Math.random() < 0.05) {
+        // 外呼Agent和跟进记录Agent在开始外呼后才会随机工作
+        if ((robot.id === 'calling' || robot.id === 'followup') && hasStartedCalling && Math.random() < 0.05) {
           const newStatus = robot.status === 'idle' ? 'working' : 'idle';
           const newProgress = newStatus === 'working' ? Math.floor(Math.random() * 100) : 0;
           const newStats = {
@@ -363,17 +479,11 @@ export default function Home() {
             if (currentTaskIndex < tasks.length) {
               setTimeout(simulateCalling, 1000);
             } else {
-              // 所有任务完成，将外呼机器人设置为空闲状态，启动其他Agent
+              // 所有任务完成，将外呼机器人设置为空闲状态，启动跟进记录Agent
               setTimeout(() => {
                 setRobots(prev => prev.map(robot => {
                   if (robot.id === 'calling') {
                     return { ...robot, status: 'idle', progress: 0 };
-                  }
-                  if (robot.id === 'task') {
-                    return { ...robot, status: 'working', progress: 0 };
-                  }
-                  if (robot.id === 'script') {
-                    return { ...robot, status: 'working', progress: 0 };
                   }
                   if (robot.id === 'followup') {
                     return { ...robot, status: 'working', progress: 0 };
@@ -381,49 +491,9 @@ export default function Home() {
                   return robot;
                 }));
 
-
-
-                // 模拟其他Agent进度
-                let taskProgress = 0;
-                let scriptProgress = 0;
+                // 模拟跟进记录Agent进度
                 let followupProgress = 0;
                 
-                const taskInterval = setInterval(() => {
-                  taskProgress += 10;
-                  setRobots(prev => prev.map(robot => 
-                    robot.id === 'task' 
-                      ? { ...robot, progress: Math.min(taskProgress, 100) }
-                      : robot
-                  ));
-
-                  if (taskProgress >= 100) {
-                    clearInterval(taskInterval);
-                    setRobots(prev => prev.map(robot => 
-                      robot.id === 'task' 
-                        ? { ...robot, status: 'idle', progress: 0 }
-                        : robot
-                    ));
-                  }
-                }, 500);
-
-                const scriptInterval = setInterval(() => {
-                  scriptProgress += 8;
-                  setRobots(prev => prev.map(robot => 
-                    robot.id === 'script' 
-                      ? { ...robot, progress: Math.min(scriptProgress, 100) }
-                      : robot
-                  ));
-
-                  if (scriptProgress >= 100) {
-                    clearInterval(scriptInterval);
-                    setRobots(prev => prev.map(robot => 
-                      robot.id === 'script' 
-                        ? { ...robot, status: 'idle', progress: 0 }
-                        : robot
-                    ));
-                  }
-                }, 400);
-
                 const followupInterval = setInterval(() => {
                   followupProgress += 6;
                   setRobots(prev => prev.map(robot => 
@@ -468,6 +538,69 @@ export default function Home() {
     setShowTaskLeadsDrawer(true);
   };
 
+  // 处理外呼成功回调
+  const handleOutboundCallSuccess = async () => {
+    // 启动外呼Agent工作状态
+    setHasStartedCalling(true);
+    setRobots(prev => prev.map(robot => 
+      robot.id === 'calling' 
+        ? { ...robot, status: 'working', progress: 0 }
+        : robot
+    ));
+    
+    // 刷新任务列表
+    try {
+      const response = await tasksAPI.getCallTasksList();
+      if (response.status === 'success') {
+        const apiTasks = response.data.tasks || [];
+        // 只显示已开始外呼的任务
+        const convertedTasks = apiTasks
+          .filter((apiTask: any) => apiTask.task_type === 2) // 只显示已开始外呼的任务
+          .map((apiTask: any) => ({
+            id: apiTask.id.toString(),
+            name: apiTask.task_name,
+            createdAt: new Date(apiTask.create_time).toLocaleString(),
+            conditions: [],
+            targetCount: apiTask.leads_count,
+            filteredCount: apiTask.leads_count,
+            status: 'pending' as const,
+            organization_id: apiTask.organization_id,
+            create_name: apiTask.create_name,
+            script_id: apiTask.script_id,
+            task_type: apiTask.task_type,
+            size_desc: apiTask.size_desc
+          }));
+        
+        setTasks(convertedTasks);
+
+        // 自动检查任务完成状态
+        for (const task of apiTasks) {
+          if (task.task_type === 2) { // 只检查正在外呼的任务
+            await checkTaskCompletion(task.id, task.task_type);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('刷新任务列表失败:', error);
+    }
+  };
+
+  // 检查任务完成状态
+  const checkTaskCompletion = async (taskId: number, taskType: number) => {
+    try {
+      const response = await tasksAPI.checkTaskCompletion(taskId, taskType);
+      if (response.status === 'success') {
+        const data = response.data;
+        if (data.is_completed) {
+          console.log(`任务 ${taskId} 已完成，所有通话都已接通`);
+          // 可以在这里添加任务完成的通知逻辑
+        }
+      }
+    } catch (error) {
+      console.error('检查任务完成状态失败:', error);
+    }
+  };
+
   // 处理机器人点击
   const handleRobotClick = async (robotId: string) => {
     // 检查是否已绑定DCC账号
@@ -479,39 +612,9 @@ export default function Home() {
 
     setSelectedRobot(robotId);
     
-    // 任务Agent显示任务列表
+    // 任务Agent直接进入创建任务页面
     if (robotId === 'task') {
-      try {
-        // 调用任务列表API
-        const response = await tasksAPI.getCallTasksList();
-        if (response.status === 'success') {
-          // 转换API数据格式为本地格式
-          const apiTasks = response.data.tasks || [];
-          const convertedTasks = apiTasks.map((apiTask: any) => ({
-            id: apiTask.id.toString(),
-            name: apiTask.task_name,
-            createdAt: new Date(apiTask.create_time).toLocaleString(),
-            conditions: [], // API中没有筛选条件信息，暂时为空
-            targetCount: apiTask.leads_count,
-            filteredCount: apiTask.leads_count,
-            status: 'pending' as const,
-            organization_id: apiTask.organization_id,
-            create_name: apiTask.create_name,
-            scene_id: apiTask.scene_id,
-            task_type: apiTask.task_type,
-            size_desc: apiTask.size_desc
-          }));
-          
-          setTasks(convertedTasks);
-          setShowTaskListDrawer(true);
-        } else {
-          console.error('获取任务列表失败:', response.message);
-          alert('获取任务列表失败，请重试');
-        }
-      } catch (error) {
-        console.error('获取任务列表失败:', error);
-        alert('获取任务列表失败，请重试');
-      }
+      setShowTaskCreationDrawer(true);
       return;
     }
     
@@ -521,22 +624,24 @@ export default function Home() {
         // 调用任务列表API
         const response = await tasksAPI.getCallTasksList();
         if (response.status === 'success') {
-          // 转换API数据格式为本地格式
+          // 转换API数据格式为本地格式，只显示未开始外呼的任务
           const apiTasks = response.data.tasks || [];
-          const convertedTasks = apiTasks.map((apiTask: any) => ({
-            id: apiTask.id.toString(),
-            name: apiTask.task_name,
-            createdAt: new Date(apiTask.create_time).toLocaleString(),
-            conditions: [], // API中没有筛选条件信息，暂时为空
-            targetCount: apiTask.leads_count,
-            filteredCount: apiTask.leads_count,
-            status: 'pending' as const,
-            organization_id: apiTask.organization_id,
-            create_name: apiTask.create_name,
-            scene_id: apiTask.scene_id,
-            task_type: apiTask.task_type,
-            size_desc: apiTask.size_desc
-          }));
+          const convertedTasks = apiTasks
+            .filter((apiTask: any) => apiTask.task_type !== 2) // 过滤掉已开始外呼的任务
+            .map((apiTask: any) => ({
+              id: apiTask.id.toString(),
+              name: apiTask.task_name,
+              createdAt: new Date(apiTask.create_time).toLocaleString(),
+              conditions: [], // API中没有筛选条件信息，暂时为空
+              targetCount: apiTask.leads_count,
+              filteredCount: apiTask.leads_count,
+              status: 'pending' as const,
+              organization_id: apiTask.organization_id,
+              create_name: apiTask.create_name,
+              script_id: apiTask.script_id,
+              task_type: apiTask.task_type,
+              size_desc: apiTask.size_desc
+            }));
           
           setTasks(convertedTasks);
           setShowTaskSelectionDrawer(true);
@@ -551,25 +656,93 @@ export default function Home() {
       return;
     }
     
-    // 根据机器人类型执行不同操作
-    switch (robotId) {
-      case 'calling':
-        // 查看外呼Agent工作情况
-        if (!hasStartedCalling) {
-          alert('请先开始外呼活动');
+    // 外呼Agent
+    if (robotId === 'calling') {
+      try {
+        console.log('外呼Agent clicked, 开始获取任务列表...');
+        // 刷新任务列表以获取最新状态
+        const response = await tasksAPI.getCallTasksList();
+        if (response.status === 'success') {
+          const apiTasks = response.data.tasks || [];
+          // 只显示已开始外呼的任务
+          const convertedTasks = apiTasks
+            .filter((apiTask: any) => apiTask.task_type === 2) // 只显示已开始外呼的任务
+            .map((apiTask: any) => ({
+              id: apiTask.id.toString(),
+              name: apiTask.task_name,
+              createdAt: new Date(apiTask.create_time).toLocaleString(),
+              conditions: [],
+              targetCount: apiTask.leads_count,
+              filteredCount: apiTask.leads_count,
+              status: 'pending' as const,
+              organization_id: apiTask.organization_id,
+              create_name: apiTask.create_name,
+              script_id: apiTask.script_id,
+              task_type: apiTask.task_type,
+              size_desc: apiTask.size_desc
+            }));
+          
+          setTasks(convertedTasks);
+          
+          // 检查是否有开始外呼的任务
+          console.log('找到外呼任务:', convertedTasks.length, convertedTasks);
+          
+          if (convertedTasks.length > 0) {
+            // 显示外呼Agent监控界面
+            console.log('显示外呼Agent监控界面');
+            setShowMonitorDrawer(true);
+            // 启动外呼Agent工作状态
+            setHasStartedCalling(true);
+            setRobots(prev => prev.map(robot => 
+              robot.id === 'calling' 
+                ? { ...robot, status: 'working', progress: 0 }
+                : robot
+            ));
+          } else {
+            alert('请先开始外呼活动');
+          }
         } else {
-          setShowCallRecordDrawer(true);
+          console.error('获取任务列表失败:', response.message);
+          alert('获取任务列表失败，请重试');
         }
-        break;
-      case 'followup':
-        // 查看跟进记录Agent工作情况
-        if (!hasStartedCalling) {
-          alert('请先开始外呼活动，跟进记录Agent才能开始工作');
-        } else {
-          alert('跟进记录Agent正在记录跟进情况');
-        }
-        break;
+      } catch (error) {
+        console.error('获取任务列表失败:', error);
+        alert('获取任务列表失败，请重试');
+      }
+      return;
     }
+    
+    // 跟进记录Agent
+    if (robotId === 'followup') {
+      try {
+        // 获取任务列表，让用户选择
+        const response = await tasksAPI.getCallTasksList();
+        if (response.status === 'success') {
+          const apiTasks = response.data.tasks || [];
+          // 只显示开始外呼(task_type=2)和外呼完成(task_type=3)的任务
+          const filteredTasks = apiTasks.filter((task: any) => task.task_type === 2 || task.task_type === 3);
+          if (filteredTasks.length === 0) {
+            alert('暂无外呼任务，请先开始外呼活动');
+            return;
+          }
+          // 显示任务选择模态框
+          setShowTaskSelectionModal(true);
+        } else {
+          console.error('获取任务列表失败:', response.message);
+          alert('获取任务列表失败，请重试');
+        }
+      } catch (error) {
+        console.error('获取任务列表失败:', error);
+        alert('获取任务列表失败，请重试');
+      }
+      return;
+    }
+  };
+
+  // 处理任务选择
+  const handleTaskSelectForFollowup = (task: any) => {
+    setSelectedTaskForFollowup(task);
+    setShowFollowupModal(true);
   };
 
   // 获取状态颜色
@@ -593,6 +766,21 @@ export default function Home() {
         return '异常';
       default:
         return '空闲';
+    }
+  };
+
+  // 测试token校验功能
+  const handleTestTokenValidation = async () => {
+    try {
+      const isValid = await checkTokenValidity();
+      if (isValid) {
+        alert('Token验证成功！');
+      } else {
+        alert('Token验证失败，将跳转到登录页面');
+      }
+    } catch (error) {
+      console.error('Token验证测试失败:', error);
+      alert('Token验证测试失败');
     }
   };
 
@@ -631,24 +819,15 @@ export default function Home() {
                   </div>
                 )}
               </div>
-              <button
-                onClick={() => {
-                  if (!isDccBound) {
-                    alert('请先绑定DCC账号才能进行操作');
-                    setShowDccBindModal(true);
-                    return;
-                  }
-                  router.push('/manual-analysis');
-                }}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
-                  isDccBound 
-                    ? 'bg-white/10 text-white hover:bg-white/20' 
-                    : 'bg-gray-500/30 text-gray-400 cursor-not-allowed'
-                }`}
-                disabled={!isDccBound}
-              >
-                手动分析
-              </button>
+              <div className="flex space-x-2">
+                {/* Token校验测试按钮 */}
+                <button
+                  onClick={handleTestTokenValidation}
+                  className="px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 border border-orange-500/30"
+                >
+                  测试Token校验
+                </button>
+              </div>
             </div>
 
             {/* 机器人卡片网格 */}
@@ -661,19 +840,21 @@ export default function Home() {
                     className={`
                       relative group transition-all duration-500 transform
                       bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-4
+                      min-h-[280px] flex flex-col justify-between
                       ${isDccBound 
                         ? 'cursor-pointer hover:scale-105 hover:bg-white/10 hover:border-white/20 hover:shadow-2xl' 
                         : 'cursor-not-allowed opacity-60'
                       }
                       ${selectedRobot === robot.id ? 'ring-2 ring-blue-500/50' : ''}
-                      ${robot.status === 'working' ? 'robot-working' : ''}
+                      ${robot.id === 'calling' && robot.status === 'working' ? 'robot-working' : ''}
+                      ${robot.id === 'followup' && robot.status === 'working' ? 'robot-working' : ''}
                     `}
                   >
-                    {/* 工作状态指示器 */}
-                    {robot.status === 'working' && (
+                    {/* 工作状态指示器 - 对外呼Agent和跟进记录Agent显示 */}
+                    {(robot.id === 'calling' || robot.id === 'followup') && robot.status === 'working' && (
                       <div className="absolute top-3 right-3">
-                        <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                        <div className="absolute inset-0 w-2 h-2 bg-blue-400 rounded-full animate-ping opacity-75"></div>
+                        <div className={`w-2 h-2 rounded-full animate-pulse ${robot.id === 'calling' ? 'bg-blue-400' : 'bg-green-400'}`}></div>
+                        <div className={`absolute inset-0 w-2 h-2 rounded-full animate-ping opacity-75 ${robot.id === 'calling' ? 'bg-blue-400' : 'bg-green-400'}`}></div>
                       </div>
                     )}
 
@@ -682,82 +863,149 @@ export default function Home() {
                       <div className={`
                         relative inline-flex items-center justify-center w-12 h-12 rounded-xl
                         text-2xl mb-2 transition-all duration-300 group-hover:scale-110
-                        ${robot.status === 'working' 
+                        ${robot.id === 'calling' && robot.status === 'working' 
                           ? 'bg-gradient-to-br from-blue-500 to-purple-600 robot-glow' 
+                          : robot.id === 'followup' && robot.status === 'working'
+                          ? 'bg-gradient-to-br from-green-500 to-blue-600 robot-glow'
                           : 'bg-gradient-to-br from-gray-600 to-gray-700'
                         }
                       `}>
                         {robot.icon}
-                        {/* 工作时的旋转光环 */}
-                        {robot.status === 'working' && (
+                        {/* 工作时的旋转光环 - 对外呼Agent和跟进记录Agent显示 */}
+                        {robot.id === 'calling' && robot.status === 'working' && (
                           <div className="absolute inset-0 rounded-xl border-2 border-blue-400/50 animate-spin"></div>
+                        )}
+                        {robot.id === 'followup' && robot.status === 'working' && (
+                          <div className="absolute inset-0 rounded-xl border-2 border-green-400/50 animate-spin"></div>
                         )}
                       </div>
                     </div>
 
                     {/* 机器人信息 */}
-                    <div className="text-center">
-                      <h3 className="text-base font-semibold text-white mb-1">{robot.name}</h3>
-                      <p className="text-xs text-gray-300 mb-3 line-clamp-2">{robot.description}</p>
-                      
-                      {/* 状态指示器 */}
-                      <div className="flex items-center justify-center mb-3">
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${getStatusColor(robot.status)}`}></div>
-                        <span className={`text-xs ${getStatusColor(robot.status)}`}>
-                          {getStatusText(robot.status)}
-                        </span>
-                      </div>
+                    <div className="text-center flex-1 flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-base font-semibold text-white mb-1">{robot.name}</h3>
+                        <p className="text-xs text-gray-300 mb-3 line-clamp-2">{robot.description}</p>
+                        
+                        {/* 状态指示器 - 对外呼Agent和跟进记录Agent显示 */}
+                        {(robot.id === 'calling' || robot.id === 'followup') && (
+                          <div className="flex items-center justify-center mb-3">
+                            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${getStatusColor(robot.status)}`}></div>
+                            <span className={`text-xs ${getStatusColor(robot.status)}`}>
+                              {getStatusText(robot.status)}
+                            </span>
+                            {/* 工作状态下的点击提示 */}
+                            {robot.status === 'working' && (
+                              <div className="ml-2 text-xs text-blue-400 animate-pulse">
+                                点击查看
+                              </div>
+                            )}
+                          </div>
+                        )}
 
-                      {/* 进度条 - 只有工作时显示 */}
-                      {robot.status === 'working' && (
-                        <div className="mb-3">
-                          <div className="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                            <div 
-                              className="bg-gradient-to-r from-blue-500 to-purple-500 h-1.5 rounded-full transition-all duration-500 relative"
-                              style={{ 
-                                width: `${robot.id === 'calling' ? callingProgress : 
-                                        robot.id === 'task' ? robot.progress : 
-                                        robot.id === 'script' ? robot.progress : 
-                                        robot.id === 'followup' ? robot.progress : robot.progress}%` 
-                              }}
-                            >
-                              {/* 进度条动画效果 */}
-                              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent progress-shimmer"></div>
+                        {/* 进度条 - 对外呼Agent和跟进记录Agent显示 */}
+                        {(robot.id === 'calling' || robot.id === 'followup') && robot.status === 'working' && (
+                          <div className="mb-3">
+                            <div className="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                              <div 
+                                className="bg-gradient-to-r from-blue-500 to-purple-500 h-1.5 rounded-full transition-all duration-500 relative"
+                                style={{ 
+                                  width: `${robot.id === 'calling' ? callingProgress : 
+                                          robot.id === 'followup' ? robot.progress : robot.progress}%` 
+                                }}
+                              >
+                                {/* 进度条动画效果 */}
+                                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent progress-shimmer"></div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-400 mt-1">
+                              {robot.id === 'calling' ? callingProgress : robot.progress}%
+                            </div>
+                            {/* 点击提示 */}
+                            <div className="text-xs text-blue-400 mt-1 text-center">
+                              点击查看详细工作情况
                             </div>
                           </div>
-                          <div className="text-xs text-gray-400 mt-1">
-                            {robot.id === 'calling' ? callingProgress : robot.progress}%
-                          </div>
-                          {/* 点击提示 */}
-                          <div className="text-xs text-blue-400 mt-1 text-center">
-                            点击查看详细工作情况
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 统计信息 */}
-                      <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="text-center">
-                          <div className="text-blue-400 font-semibold text-sm">{robot.stats.total}</div>
-                          <div className="text-gray-400 text-xs">总数</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-green-400 font-semibold text-sm">{robot.stats.completed}</div>
-                          <div className="text-gray-400 text-xs">已完成</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-blue-400 font-semibold text-sm">{robot.stats.current}</div>
-                          <div className="text-gray-400 text-xs">进行中</div>
-                        </div>
+                        )}
                       </div>
 
-                      {/* 点击提示 - 非工作状态 */}
-                      {robot.status !== 'working' && (
-                        <div className="text-xs text-gray-400 mt-2 text-center">
-                          {!isDccBound ? '请先绑定DCC账号' : 
-                           hasStartedCalling ? '点击查看工作情况' : '等待外呼活动开始'}
-                        </div>
-                      )}
+                      {/* 统计信息区域 - 为所有Agent提供统一的空间 */}
+                      <div className="mt-auto">
+                        {/* 统计信息 - 对外呼Agent、跟进记录Agent和话术生成Agent显示 */}
+                        {(robot.id === 'calling' || robot.id === 'followup' || robot.id === 'script') && (
+                          <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                            {robot.id === 'calling' && (
+                              <>
+                                <div className="text-center">
+                                  <div className="text-blue-400 font-semibold text-sm">{robot.stats.total}</div>
+                                  <div className="text-gray-400 text-xs">执行中</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-green-400 font-semibold text-sm">{robot.stats.completed}</div>
+                                  <div className="text-gray-400 text-xs">已完成</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-blue-400 font-semibold text-sm">{robot.stats.current}</div>
+                                  <div className="text-gray-400 text-xs">待拨打</div>
+                                </div>
+                              </>
+                            )}
+                            {robot.id === 'followup' && (
+                              <>
+                                <div className="text-center">
+                                  <div className="text-blue-400 font-semibold text-sm">{robot.stats.total}</div>
+                                  <div className="text-gray-400 text-xs">外呼任务</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-green-400 font-semibold text-sm">{robot.stats.completed}</div>
+                                  <div className="text-gray-400 text-xs">已完成</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-blue-400 font-semibold text-sm">{robot.stats.current}</div>
+                                  <div className="text-gray-400 text-xs">进行中</div>
+                                </div>
+                              </>
+                            )}
+                            {robot.id === 'script' && (
+                              <>
+                                <div className="text-center">
+                                  <div className="text-blue-400 font-semibold text-sm">{robot.stats.total}</div>
+                                  <div className="text-gray-400 text-xs">总任务</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-green-400 font-semibold text-sm">{robot.stats.completed}</div>
+                                  <div className="text-gray-400 text-xs">已生成</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-blue-400 font-semibold text-sm">{robot.stats.current}</div>
+                                  <div className="text-gray-400 text-xs">待生成</div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 任务Agent的占位区域 - 保持高度一致 */}
+                        {robot.id === 'task' && (
+                          <div className="h-[60px] flex items-center justify-center">
+                            <div className="text-center">
+                              <div className="text-gray-400 text-xs">任务管理</div>
+                              <div className="text-gray-500 text-xs mt-1">智能分配</div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 点击提示 - 非工作状态 */}
+                        {robot.status !== 'working' && (
+                          <div className="text-xs text-gray-400 mt-2 text-center">
+                            {!isDccBound ? '请先绑定DCC账号' : 
+                             robot.id === 'task' ? '点击创建任务' :
+                             robot.id === 'script' ? '点击生成话术' :
+                             robot.id === 'calling' ? '点击查看外呼任务' :
+                             robot.id === 'followup' ? '点击选择外呼任务查看跟进记录' : '等待外呼活动开始'}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* 悬停效果 */}
@@ -867,10 +1115,7 @@ export default function Home() {
           // 处理开始外呼逻辑
           console.log('开始外呼任务:', task);
         }}
-        onViewReport={(task) => {
-          // 处理查看报告逻辑
-          console.log('查看任务报告:', task);
-        }}
+        onOutboundCallSuccess={handleOutboundCallSuccess}
       />
 
       {/* 话术生成抽屉 */}
@@ -890,6 +1135,39 @@ export default function Home() {
         onClose={() => setShowTaskLeadsDrawer(false)}
         taskInfo={taskLeadsData?.task_info}
         taskLeads={taskLeadsData?.task_details || []}
+      />
+
+      {/* 任务创建抽屉 */}
+      <TaskCreationDrawer
+        isOpen={showTaskCreationDrawer}
+        onClose={() => setShowTaskCreationDrawer(false)}
+        onTaskCreated={(taskData) => {
+          console.log('任务创建成功:', taskData);
+          setShowTaskCreationDrawer(false);
+          // 可以在这里添加任务创建成功后的处理逻辑
+        }}
+      />
+
+      {/* 外呼监控抽屉 */}
+      <MonitorDrawer
+        isOpen={showMonitorDrawer}
+        onClose={() => setShowMonitorDrawer(false)}
+        callingTasks={tasks.filter(task => task.task_type === 2)}
+        callProgress={callingProgress}
+      />
+
+      {/* 跟进记录弹窗 */}
+      <FollowupModal
+        isOpen={showFollowupModal}
+        onClose={() => setShowFollowupModal(false)}
+        selectedTaskId={selectedTaskForFollowup?.id}
+      />
+
+      {/* 任务选择模态框 */}
+      <TaskSelectionModal
+        isOpen={showTaskSelectionModal}
+        onClose={() => setShowTaskSelectionModal(false)}
+        onTaskSelect={handleTaskSelectForFollowup}
       />
     </div>
   );
