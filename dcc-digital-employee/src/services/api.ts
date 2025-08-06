@@ -1,8 +1,7 @@
 // API服务文件
 import { handleTokenExpired } from '../utils/tokenUtils';
 
-const API_BASE_URL = 'http://your-server-ip:8000/api';
-// 或者使用域名：const API_BASE_URL = 'https://your-domain.com/api';
+const API_BASE_URL = 'http://localhost:8000/api';
 
 // Token缓存机制
 let tokenCache = {
