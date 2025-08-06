@@ -14,7 +14,7 @@ interface Task {
   organization_id?: string;
   create_name?: string;
   script_id?: string;
-  task_type?: number; // 1:已创建；2:开始外呼；3:外呼完成；4:已删除
+  task_type?: number; // 1:已创建；2:开始外呼；3:外呼完成；4:跟进完成
   size_desc?: any;
 }
 

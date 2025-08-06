@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '../../contexts/AuthContext';
 import Header from '../../components/Header';
 import DccBindModal from '../../components/DccBindModal';
-import ConfigModal from '../../components/ConfigModal';
 import WorkflowSteps, { StepType } from '../../components/workflow/WorkflowSteps';
 import ContentArea from '../../components/workflow/ContentArea';
 import ConfirmModal from '../../components/workflow/ConfirmModal';
@@ -12,6 +12,7 @@ import { createSteps, getStepStatus, calculateMatchedCount, calculateMatchedCoun
 
 export default function ManualAnalysisPage() {
   const router = useRouter();
+  const { user, loading } = useAuth();
   const [showDccBindModal, setShowDccBindModal] = useState(false);
   const [currentStep, setCurrentStep] = useState<StepType>('initiate');
   const [analysisProgress, setAnalysisProgress] = useState(0);
@@ -30,7 +31,6 @@ export default function ManualAnalysisPage() {
     completedToday: 0
   });
   const [userInput, setUserInput] = useState('');
-  const [showConfigModal, setShowConfigModal] = useState(false);
   const [selectedConditions, setSelectedConditions] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
   const [hasAnalysisResults, setHasAnalysisResults] = useState(false);
@@ -348,13 +348,7 @@ export default function ManualAnalysisPage() {
   };
 
   // 处理配置弹窗
-  const handleConfigModalOpen = () => {
-    setShowConfigModal(true);
-  };
 
-  const handleConfigModalClose = () => {
-    setShowConfigModal(false);
-  };
 
   const handleConfigConfirm = (conditions: any[]) => {
     setSelectedConditions(conditions);
@@ -387,6 +381,34 @@ export default function ManualAnalysisPage() {
   const handleSelectAnalysisResult = (result: any) => {
     setSelectedAnalysisResult(result);
   };
+
+  // 如果正在加载或验证token，显示加载状态
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-flex items-center space-x-3 mb-4">
+            <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" />
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+              DCC 数字员工
+            </h1>
+            <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse delay-500" />
+          </div>
+          <div className="flex items-center justify-center space-x-2">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+            <span className="text-gray-300 text-sm">
+              正在加载...
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 如果没有用户信息，跳转到登录页面
+  if (!user) {
+    return null; // 返回null，让AuthContext处理跳转
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -438,7 +460,7 @@ export default function ManualAnalysisPage() {
                     selectedAnalysisResult={selectedAnalysisResult}
                     onTabChange={setActiveTab}
                     onUserInputChange={setUserInput}
-                    onConfigModalOpen={handleConfigModalOpen}
+
                     onInitiatePlan={handleInitiatePlan}
                     onStartCalling={handleStartCalling}
                     onViewReport={handleViewReport}
@@ -463,12 +485,7 @@ export default function ManualAnalysisPage() {
         }}
       />
 
-      {/* 配置弹窗 */}
-      <ConfigModal
-        isOpen={showConfigModal}
-        onClose={handleConfigModalClose}
-        onConfirm={handleConfigConfirm}
-      />
+
 
       {/* 确认重新发起分析弹窗 */}
       <ConfirmModal

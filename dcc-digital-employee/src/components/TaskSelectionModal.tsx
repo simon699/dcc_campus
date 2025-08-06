@@ -40,10 +40,11 @@ export default function TaskSelectionModal({
       const response = await tasksAPI.getCallTasksList();
       
       if (response.status === 'success') {
-        const apiTasks = response.data.tasks || [];
-        // 只显示开始外呼(task_type=2)和外呼完成(task_type=3)的任务
-        const filteredTasks = apiTasks.filter((task: Task) => task.task_type === 2 || task.task_type === 3);
-        setTasks(filteredTasks);
+        // API返回的是数组格式，不是包含tasks字段的对象
+        const apiTasks = response.data || [];
+        // 显示外呼进行中、已完成和跟进完成的任务（task_type = 2、3 或 4）
+        const completedTasks = apiTasks.filter((task: any) => task.task_type === 2 || task.task_type === 3 || task.task_type === 4);
+        setTasks(completedTasks);
       } else {
         setError(response.message || '获取任务列表失败');
       }
@@ -62,9 +63,9 @@ export default function TaskSelectionModal({
       case 2:
         return '外呼进行中';
       case 3:
-        return '外呼完成';
+        return '跟进中';
       case 4:
-        return '已删除';
+        return '跟进完成';
       default:
         return '未知状态';
     }
@@ -77,9 +78,9 @@ export default function TaskSelectionModal({
       case 2:
         return 'text-yellow-400 bg-yellow-500/20';
       case 3:
-        return 'text-green-400 bg-green-500/20';
+        return 'text-blue-400 bg-blue-500/20';
       case 4:
-        return 'text-red-400 bg-red-500/20';
+        return 'text-green-400 bg-green-500/20';
       default:
         return 'text-gray-400 bg-gray-500/20';
     }
@@ -109,8 +110,8 @@ export default function TaskSelectionModal({
         <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-lg p-6 w-[500px] max-h-[600px] overflow-y-auto">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-xl font-semibold text-white">选择外呼任务</h2>
-              <p className="text-gray-400 text-sm mt-1">查看任务跟进记录和完成情况</p>
+              <h2 className="text-xl font-semibold text-white">选择任务</h2>
+              <p className="text-gray-400 text-sm mt-1">查看外呼进行中、已完成和跟进完成的任务</p>
             </div>
             <button
               onClick={onClose}
@@ -150,8 +151,8 @@ export default function TaskSelectionModal({
                   <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
-                  <p>暂无外呼任务</p>
-                  <p className="text-xs mt-2">只显示已开始外呼或外呼完成的任务</p>
+                  <p>暂无相关任务</p>
+                  <p className="text-xs mt-2">请等待任务开始执行后再查看</p>
                 </div>
               ) : (
                 tasks.map((task) => (
@@ -180,7 +181,7 @@ export default function TaskSelectionModal({
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-400">线索数量：{task.leads_count}</span>
-                      <span className="text-blue-400 text-xs">点击查看跟进记录</span>
+                      <span className="text-blue-400 text-xs">点击查看执行记录</span>
                     </div>
                   </div>
                 ))

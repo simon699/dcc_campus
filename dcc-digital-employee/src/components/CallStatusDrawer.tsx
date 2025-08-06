@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { tasksAPI } from '../services/api';
 
 interface CallJob {
@@ -18,12 +18,14 @@ interface CallJob {
     JobGroupId: string;
     Status: string;
     Priority: number;
+    SystemPriority?: number;
+    ScenarioId?: string;
+    StrategyId?: string;
     Contacts: Array<{
       ContactId: string;
       ContactName: string;
       PhoneNumber: string;
       ReferenceId: string;
-      Role: string;
     }>;
     Tasks: Array<{
       TaskId: string;
@@ -34,16 +36,30 @@ interface CallJob {
       Duration: number;
       ActualTime: number;
       PlanedTime: number;
+      ChatbotId?: string;
+      JobId?: string;
+      Contact?: {
+        ReferenceId: string;
+        PhoneNumber: string;
+        ContactId: string;
+        ContactName: string;
+      };
       Conversation: Array<{
         Speaker: string;
         Script: string;
         Timestamp: number;
+        Summary?: string[];
       }>;
     }>;
     Summary: Array<{
       SummaryName: string;
       Content: string;
     }>;
+    Extras?: Array<{
+      Key: string;
+      Value: string;
+    }>;
+    CallingNumbers?: string[];
   };
 }
 
@@ -52,65 +68,144 @@ interface CallStatusDrawerProps {
   onClose: () => void;
   taskId: string;
   taskName: string;
+  onRefresh?: () => void; // 添加刷新回调函数
+  taskType?: number; // 添加任务类型参数
+  onTaskTypeChange?: (newTaskType: number) => void; // 添加任务类型变化回调
 }
 
-export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName }: CallStatusDrawerProps) {
+// 状态缓存
+const statusCache = new Map<string, {
+  data: any;
+  timestamp: number;
+  cacheDuration: number;
+}>();
+
+export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, onRefresh, taskType, onTaskTypeChange }: CallStatusDrawerProps) {
   const [callJobs, setCallJobs] = useState<CallJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  const [taskStatus, setTaskStatus] = useState<any>(null);
+  
+  // 防抖定时器
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
+  const minFetchInterval = 3000; // 最小3秒间隔
+
+  // 检查缓存是否有效
+  const isCacheValid = (cacheKey: string, cacheDuration: number = 30000) => {
+    const cached = statusCache.get(cacheKey);
+    if (!cached) return false;
+    
+    const now = Date.now();
+    return (now - cached.timestamp) < cacheDuration;
+  };
+
+  // 获取缓存数据
+  const getCachedData = (cacheKey: string) => {
+    const cached = statusCache.get(cacheKey);
+    return cached ? cached.data : null;
+  };
+
+  // 设置缓存数据
+  const setCachedData = (cacheKey: string, data: any, cacheDuration: number = 30000) => {
+    statusCache.set(cacheKey, {
+      data,
+      timestamp: Date.now(),
+      cacheDuration
+    });
+  };
+
+  // 防抖的获取任务详情函数
+  const debouncedFetchCallStatus = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(() => {
+      fetchCallStatus();
+    }, 500); // 500ms防抖
+  }, []);
 
   // 获取任务详情和job_ids
   const fetchCallStatus = async () => {
     if (!isOpen || !taskId) return;
 
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < minFetchInterval) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
+    lastFetchTimeRef.current = now;
 
     try {
-      // 1. 获取任务详情，包含job_ids
-      const taskDetailsResponse = await tasksAPI.getCallTaskDetails(taskId);
-      if (taskDetailsResponse.status !== 'success') {
-        throw new Error('获取任务详情失败');
+      // 使用新的查询任务执行情况接口
+      const executionCacheKey = `task_execution_${taskId}`;
+      let executionResponse;
+      
+      if (isCacheValid(executionCacheKey, 10000)) { // 10秒缓存
+        executionResponse = getCachedData(executionCacheKey);
+      } else {
+        executionResponse = await tasksAPI.queryTaskExecution(parseInt(taskId));
+        if (executionResponse.status === 'success') {
+          setCachedData(executionCacheKey, executionResponse, 10000);
+        }
       }
 
-      const taskDetails = taskDetailsResponse.data.task_details || [];
-      const jobIds = taskDetails
-        .map((detail: any) => detail.call_job_id)
-        .filter((jobId: string) => jobId && jobId !== '');
+      if (executionResponse.status !== 'success') {
+        throw new Error('获取任务执行情况失败');
+      }
 
-      if (jobIds.length === 0) {
+      const taskData = executionResponse.data;
+      
+      // 根据jobs_data中的Status字段计算任务状态
+      const jobsData = taskData.jobs_data || [];
+      const succeededJobs = jobsData.filter((job: any) => job.Status === "Succeeded").length;
+      const schedulingJobs = jobsData.filter((job: any) => job.Status === "Scheduling").length;
+      const totalJobs = jobsData.length;
+      
+      // 计算已接通的任务数（Succeeded状态）
+      const connectedCount = succeededJobs;
+      
+      // 未接通任务数 = 总任务数 - 已接通任务数
+      const notConnectedCount = totalJobs - connectedCount;
+      
+      // 如果所有任务都是Succeeded状态，则认为任务完成
+      const isCompleted = totalJobs > 0 && succeededJobs === totalJobs;
+      
+      // 设置任务状态信息
+      setTaskStatus({
+        is_completed: isCompleted,
+        total_calls: totalJobs,
+        connected_calls: connectedCount,
+        not_connected_calls: notConnectedCount,
+        query_time: taskData.query_time
+      });
+
+      // 处理 jobs_data 数据
+      if (!taskData.jobs_data || taskData.jobs_data.length === 0) {
         setError('该任务暂无外呼记录');
         setLoading(false);
         return;
       }
 
-      // 2. 查询外呼任务状态
-      const outboundResponse = await tasksAPI.queryOutboundCall(jobIds);
-      if (outboundResponse.status !== 'success') {
-        throw new Error(outboundResponse.message || '查询外呼任务失败');
-      }
-
-      // 处理返回的数据，将 raw_data 中的信息映射到主对象
-      const processedJobs = (outboundResponse.data.jobs || []).map((job: any) => {
-        const rawData = job.raw_data || {};
+      // 将新的数据结构转换为原有的 CallJob 格式
+      const processedJobs = taskData.jobs_data.map((job: any) => {
         return {
-          job_id: job.job_id || rawData.JobId || '未知',
-          job_group_id: job.job_group_id || rawData.JobGroupId || '未知',
-          status: job.status || rawData.Status || '未知',
-          priority: job.priority || rawData.Priority || 0,
-          failure_reason: job.failure_reason,
-          result: job.result,
-          created_time: job.created_time,
-          modified_time: job.modified_time,
-          db_record: job.db_record,
-          raw_data: rawData
+          job_id: job.JobId || '未知',
+          job_group_id: job.JobGroupId || '未知',
+          status: job.Status || '未知',
+          priority: job.Priority || 0,
+          created_time: new Date().toISOString(), // 新接口没有这些字段，使用默认值
+          modified_time: new Date().toISOString(),
+          raw_data: job // 将整个 job 对象作为 raw_data
         };
       });
 
       setCallJobs(processedJobs);
     } catch (err) {
-      console.error('获取外呼状态失败:', err);
       setError(err instanceof Error ? err.message : '获取外呼状态失败');
     } finally {
       setLoading(false);
@@ -119,9 +214,24 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName }: 
 
   useEffect(() => {
     if (isOpen) {
-      fetchCallStatus();
+      debouncedFetchCallStatus();
     }
-  }, [isOpen, taskId]);
+    
+    // 清理定时器
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [isOpen, taskId, debouncedFetchCallStatus]);
+
+  // 清理缓存
+  useEffect(() => {
+    return () => {
+      // 组件卸载时清理相关缓存
+      statusCache.delete(`task_execution_${taskId}`);
+    };
+  }, [taskId]);
 
   // 获取状态颜色
   const getStatusColor = (status: string | null | undefined) => {
@@ -243,14 +353,74 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName }: 
 
   const handleRefresh = () => {
     fetchCallStatus();
+    // 调用父组件的刷新回调函数，更新 leads_task_list 数据
+    onRefresh?.();
+  };
+
+  // 暂停/重启任务处理函数
+  const handleSuspendResumeTask = async (action: 'suspend' | 'resume') => {
+    try {
+      const response = await tasksAPI.suspendResumeTask(parseInt(taskId), action);
+      if (response.status === 'success') {
+        console.log(`${action === 'suspend' ? '暂停' : '重启'}任务成功:`, response.data);
+        
+        // 通知父组件任务类型已变化
+        if (onTaskTypeChange) {
+          onTaskTypeChange(response.data.task_type);
+        }
+        
+        // 刷新任务状态
+        fetchCallStatus();
+      } else {
+        console.error(`${action === 'suspend' ? '暂停' : '重启'}任务失败:`, response.message);
+        
+        // 操作失败时，立即查询任务最新状态
+        try {
+          const executionResponse = await tasksAPI.queryTaskExecution(parseInt(taskId));
+          if (executionResponse.status === 'success') {
+            const taskData = executionResponse.data;
+            console.log('操作失败后查询任务状态:', taskData);
+            
+            // 如果任务状态不是2或5，则关闭弹窗
+            if (taskData.task_type !== 2 && taskData.task_type !== 5) {
+              console.log('任务状态已变化，关闭弹窗');
+              onClose();
+              return;
+            }
+          }
+        } catch (queryError) {
+          console.error('查询任务状态失败:', queryError);
+        }
+      }
+    } catch (error) {
+      console.error(`${action === 'suspend' ? '暂停' : '重启'}任务失败:`, error);
+      
+      // 操作失败时，立即查询任务最新状态
+      try {
+        const executionResponse = await tasksAPI.queryTaskExecution(parseInt(taskId));
+        if (executionResponse.status === 'success') {
+          const taskData = executionResponse.data;
+          console.log('操作失败后查询任务状态:', taskData);
+          
+          // 如果任务状态不是2或5，则关闭弹窗
+          if (taskData.task_type !== 2 && taskData.task_type !== 5) {
+            console.log('任务状态已变化，关闭弹窗');
+            onClose();
+            return;
+          }
+        }
+      } catch (queryError) {
+        console.error('查询任务状态失败:', queryError);
+      }
+    }
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-[80] pt-4" onClick={handleClose}>
-      <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl max-w-6xl w-full mx-4 h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="flex-1 overflow-y-auto p-6 pb-0">
+      <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl max-w-6xl w-full mx-4 max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex-1 overflow-y-auto p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold text-white mb-2">电话拨打情况</h2>
@@ -266,6 +436,46 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName }: 
               </svg>
             </button>
           </div>
+
+          {/* 任务状态概览 */}
+          {taskStatus && (
+            <div className="bg-white/5 border border-white/10 rounded-lg p-4 mb-6">
+              <h3 className="text-lg font-semibold text-white mb-3">任务状态概览</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-1">任务状态</div>
+                  <div className={`text-lg font-medium ${
+                    taskStatus.is_completed ? 'text-green-400' : 'text-blue-400'
+                  }`}>
+                    {taskStatus.is_completed ? '已完成' : '执行中'}
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-1">总任务数</div>
+                  <div className="text-lg font-medium text-white">
+                    {taskStatus.total_calls || 0}
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-1">已接通任务数</div>
+                  <div className="text-lg font-medium text-green-400">
+                    {taskStatus.connected_calls || 0}
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-1">未接通任务数</div>
+                  <div className="text-lg font-medium text-yellow-400">
+                    {taskStatus.not_connected_calls || 0}
+                  </div>
+                </div>
+              </div>
+              {taskStatus.query_time && (
+                <div className="mt-3 text-xs text-gray-400">
+                  查询时间: {taskStatus.query_time}
+                </div>
+              )}
+            </div>
+          )}
 
           {loading ? (
             <div className="text-center py-12">
@@ -377,7 +587,8 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName }: 
                                   <div key={contactIndex} className="mb-2 last:mb-0">
                                     <div>姓名: {contact.ContactName}</div>
                                     <div>电话: {contact.PhoneNumber}</div>
-                                    <div>角色: {contact.Role}</div>
+                                    <div>引用ID: {contact.ReferenceId}</div>
+                                    <div>联系人ID: {contact.ContactId}</div>
                                   </div>
                                 ))}
                               </div>
@@ -418,6 +629,14 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName }: 
                                         <span className="text-gray-400">实际时间:</span>
                                         <span className="text-white ml-1">{formatTimestamp(task.ActualTime)}</span>
                                       </div>
+                                      <div>
+                                        <span className="text-gray-400">计划时间:</span>
+                                        <span className="text-white ml-1">{formatTimestamp(task.PlanedTime)}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-400">通话ID:</span>
+                                        <span className="text-white ml-1">{task.CallId}</span>
+                                      </div>
                                     </div>
 
                                     {/* 通话对话记录 */}
@@ -440,6 +659,11 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName }: 
                                               {conv.Script && (
                                                 <div className="text-white mt-1">{conv.Script}</div>
                                               )}
+                                              {conv.Summary && conv.Summary.length > 0 && (
+                                                <div className="mt-1 text-yellow-300 text-xs">
+                                                  总结: {conv.Summary.join(', ')}
+                                                </div>
+                                              )}
                                             </div>
                                           ))}
                                         </div>
@@ -460,6 +684,21 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName }: 
                                   <div key={summaryIndex} className="mb-1 last:mb-0">
                                     <span className="text-gray-400">{summary.SummaryName}:</span>
                                     <span className="text-white ml-1">{summary.Content}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 额外信息 */}
+                          {job.raw_data?.Extras && job.raw_data.Extras.length > 0 && (
+                            <div className="mt-3">
+                              <span className="text-gray-400 text-sm">额外信息:</span>
+                              <div className="text-white text-sm mt-1 bg-white/5 rounded p-2">
+                                {job.raw_data.Extras.map((extra: any, extraIndex: number) => (
+                                  <div key={extraIndex} className="mb-1 last:mb-0">
+                                    <span className="text-gray-400">{extra.Key}:</span>
+                                    <span className="text-white ml-1">{extra.Value}</span>
                                   </div>
                                 ))}
                               </div>
@@ -504,22 +743,44 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName }: 
           )}
         </div>
         
-        <div className="p-6 pt-0 pb-8 border-t border-white/10">
-          <div className="flex justify-end space-x-3">
-            <button 
-              onClick={handleRefresh}
-              className="px-4 py-2 bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 rounded-lg transition-colors"
-              style={{ position: 'relative', zIndex: 1000 }}
-            >
-              刷新状态
-            </button>
-            <button 
-              onClick={handleClose} 
-              className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
-              style={{ position: 'relative', zIndex: 1000 }}
-            >
-              关闭
-            </button>
+        <div className="p-6 border-t border-white/10 flex-shrink-0">
+          <div className="flex justify-between items-center">
+            <div className="flex space-x-2">
+              {taskType === 2 && (
+                <button 
+                  onClick={handleSuspendResumeTask.bind(null, 'suspend')}
+                  className="px-4 py-2 bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 rounded-lg transition-colors"
+                  style={{ position: 'relative', zIndex: 1000 }}
+                >
+                  暂停任务
+                </button>
+              )}
+              {taskType === 5 && (
+                <button 
+                  onClick={handleSuspendResumeTask.bind(null, 'resume')}
+                  className="px-4 py-2 bg-green-500/20 text-green-300 hover:bg-green-500/30 rounded-lg transition-colors"
+                  style={{ position: 'relative', zIndex: 1000 }}
+                >
+                  重启任务
+                </button>
+              )}
+            </div>
+            <div className="flex space-x-3">
+              <button 
+                onClick={handleRefresh}
+                className="px-4 py-2 bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 rounded-lg transition-colors"
+                style={{ position: 'relative', zIndex: 1000 }}
+              >
+                刷新状态
+              </button>
+              <button 
+                onClick={handleClose} 
+                className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+                style={{ position: 'relative', zIndex: 1000 }}
+              >
+                关闭
+              </button>
+            </div>
           </div>
         </div>
       </div>

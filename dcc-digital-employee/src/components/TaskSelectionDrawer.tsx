@@ -12,7 +12,7 @@ interface Task {
   organization_id?: string;
   create_name?: string;
   script_id?: string;
-  task_type?: number; // 1:已创建；2:开始外呼；3:外呼完成；4:已删除
+  task_type?: number; // 1:已创建；2:开始外呼；3:外呼完成；4:跟进完成
   size_desc?: any;
 }
 
@@ -51,6 +51,9 @@ export default function TaskSelectionDrawer({ isOpen, onClose, onTaskSelect, tas
     }
   };
 
+  // 过滤任务：只显示待生成话术的任务（task_type=1）
+  const filteredTasks = tasks.filter(task => task.task_type === 1);
+
   // 转换筛选条件为中文显示
   const formatFilterConditions = (conditions: any[] | undefined, sizeDesc: any) => {
     if (conditions && conditions.length > 0) {
@@ -67,9 +70,14 @@ export default function TaskSelectionDrawer({ isOpen, onClose, onTaskSelect, tas
       const formattedConditions: string[] = [];
       
       // 处理时间区间字段
-      const timeRanges: { [key: string]: { start?: string; end?: string; label: string } } = {};
+      const timeRanges: { [key: string]: { start?: string; end?: string; label: string; ranges?: string[] } } = {};
       
       Object.entries(sizeDesc).forEach(([key, value]) => {
+        // 跳过null值
+        if (value === null) {
+          return;
+        }
+        
         const chineseKey = filterConditionMap[key] || key;
         
         // 处理时间区间字段
@@ -90,11 +98,29 @@ export default function TaskSelectionDrawer({ isOpen, onClose, onTaskSelect, tas
           } else if (key.endsWith('_end')) {
             timeRanges[timeRangeKey].end = String(value);
           }
+        } else if (key.includes('_ranges') && Array.isArray(value)) {
+          // 处理时间区间范围数组
+          const baseKey = key.replace(/_ranges$/, '');
+          const timeRangeKey = baseKey;
+          
+          if (!timeRanges[timeRangeKey]) {
+            timeRanges[timeRangeKey] = {
+              label: filterConditionMap[timeRangeKey] || baseKey,
+              ranges: []
+            };
+          }
+          
+          timeRanges[timeRangeKey].ranges = value;
         } else {
-          // 非时间区间字段直接显示
+          // 非时间区间字段处理
           if (key === 'is_arrive') {
             const boolValue = value === '1' || value === 1 || value === true ? '是' : '否';
             formattedConditions.push(`${chineseKey}: ${boolValue}`);
+          } else if (Array.isArray(value)) {
+            // 处理数组类型的多选值
+            if (value.length > 0) {
+              formattedConditions.push(`${chineseKey}: ${value.join('、')}`);
+            }
           } else {
             formattedConditions.push(`${chineseKey}: ${String(value)}`);
           }
@@ -103,7 +129,14 @@ export default function TaskSelectionDrawer({ isOpen, onClose, onTaskSelect, tas
       
       // 处理时间区间显示
       Object.values(timeRanges).forEach(range => {
-        if (range.start || range.end) {
+        if (range.ranges && range.ranges.length > 0) {
+          // 显示时间区间范围数组
+          const rangeTexts = range.ranges.map(r => {
+            const [start, end] = r.split('_');
+            return `${start} 至 ${end}`;
+          });
+          formattedConditions.push(`${range.label}: ${rangeTexts.join('、')}`);
+        } else if (range.start || range.end) {
           if (range.start && range.end) {
             formattedConditions.push(`${range.label}: ${range.start} 至 ${range.end}`);
           } else if (range.start) {
@@ -138,7 +171,7 @@ export default function TaskSelectionDrawer({ isOpen, onClose, onTaskSelect, tas
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {tasks.map((task) => {
+            {filteredTasks.map((task) => {
               const filterConditions = formatFilterConditions(task.conditions, task.size_desc);
               
               return (
@@ -184,7 +217,7 @@ export default function TaskSelectionDrawer({ isOpen, onClose, onTaskSelect, tas
             })}
           </div>
 
-          {tasks.length === 0 && (
+          {filteredTasks.length === 0 && (
             <div className="text-center py-12">
               <div className="text-gray-400 mb-4">
                 <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">

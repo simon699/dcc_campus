@@ -34,6 +34,7 @@ interface TaskLeadsDrawerProps {
   onClose: () => void;
   taskInfo?: TaskInfo;
   taskLeads?: TaskLead[];
+  onRefresh?: () => void; // 添加刷新回调函数
 }
 
 // 筛选条件英文到中文的映射
@@ -47,7 +48,7 @@ const filterConditionMap: { [key: string]: string } = {
   'is_arrive': '是否到店',
 };
 
-export default function TaskLeadsDrawer({ isOpen, onClose, taskInfo, taskLeads = [] }: TaskLeadsDrawerProps) {
+export default function TaskLeadsDrawer({ isOpen, onClose, taskInfo, taskLeads = [], onRefresh }: TaskLeadsDrawerProps) {
   // 格式化筛选条件显示
   const formatFilterConditions = (sizeDesc: any) => {
     if (!sizeDesc) return [];
@@ -135,11 +136,21 @@ export default function TaskLeadsDrawer({ isOpen, onClose, taskInfo, taskLeads =
                 </div>
               )}
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <div className="flex items-center space-x-3">
+              {onRefresh && (
+                <button 
+                  onClick={onRefresh}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors"
+                >
+                  刷新数据
+                </button>
+              )}
+              <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* 线索列表 */}

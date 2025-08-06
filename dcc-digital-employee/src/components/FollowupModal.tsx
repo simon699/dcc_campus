@@ -1,18 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
+import '../app/datepicker-custom.css';
 import { tasksAPI } from '../services/api';
+import SyncDCCModal from './SyncDCCModal';
 
 interface FollowupRecord {
   id: string;
   leadName: string;
   phone: string;
-  followupTime: string;
-  followupType: 'call' | 'message' | 'visit';
-  status: 'success' | 'pending' | 'failed';
-  content: string;
-  nextFollowup?: string;
-  notes?: string;
+  isInterested?: number | null; // 有无意向：null=待跟进, 0=无法判断, 1=有意向, 2=无意向
+  remark?: string; // 备注
+  conversation?: any; // 对话记录
+  followupTime?: string; // 跟进时间
+  callDuration?: number; // 通话时长
+  nextFollowTime?: string; // 下次跟进时间
 }
 
 interface TaskInfo {
@@ -24,20 +28,12 @@ interface TaskInfo {
   is_completed: boolean;
 }
 
-interface CallStatistics {
-  total_calls: number;
-  connected_calls: number;
-  failed_calls: number;
-  busy_calls: number;
-  no_answer_calls: number;
-  success_rate: number;
-}
-
-interface TaskCompletionStatus {
-  total_leads: number;
-  connected_leads: number;
-  completion_rate: number;
-  is_completed: boolean;
+interface TaskStatistics {
+  total_leads: number;      // 线索数量
+  pending_follow: number;   // 待跟进数量（is_interested为空）
+  unable_to_judge: number;  // 无法判断数量（is_interested=0）
+  interested: number;       // 有意向数量（is_interested=1）
+  not_interested: number;   // 无意向数量（is_interested=2）
 }
 
 interface FollowupModalProps {
@@ -46,6 +42,8 @@ interface FollowupModalProps {
   selectedTaskId?: number;
 }
 
+
+
 export default function FollowupModal({ 
   isOpen, 
   onClose, 
@@ -53,104 +51,175 @@ export default function FollowupModal({
 }: FollowupModalProps) {
   const [followupRecords, setFollowupRecords] = useState<FollowupRecord[]>([]);
   const [taskInfo, setTaskInfo] = useState<TaskInfo | null>(null);
-  const [callStatistics, setCallStatistics] = useState<CallStatistics | null>(null);
-  const [taskCompletion, setTaskCompletion] = useState<TaskCompletionStatus | null>(null);
+  const [taskStatistics, setTaskStatistics] = useState<TaskStatistics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'records'>('overview');
+  
+  // 筛选和展开状态
+  const [interestFilter, setInterestFilter] = useState<'all' | 'pending' | 'unable_to_judge' | 'interested' | 'not_interested'>('all');
+  const [nextFollowFilter, setNextFollowFilter] = useState<'all' | 'has_next_follow' | 'no_next_follow' | 'custom_range'>('all');
+  const [customStartDate, setCustomStartDate] = useState<Date | null>(null);
+  const [customEndDate, setCustomEndDate] = useState<Date | null>(null);
+  const [expandedRecords, setExpandedRecords] = useState<Set<string>>(new Set());
+  
+  // 新增：勾选状态
+  const [selectedRecords, setSelectedRecords] = useState<Set<string>>(new Set());
+  const [selectAll, setSelectAll] = useState(false);
+  
+  // 新增：同步DCC弹窗状态
+  const [showSyncModal, setShowSyncModal] = useState(false);
 
   // 当弹窗打开且有选中的任务时，获取任务跟进记录
   useEffect(() => {
     if (isOpen && selectedTaskId) {
-      fetchTaskFollowupRecords();
+      // 清空选择状态
+      setSelectedRecords(new Set());
+      setSelectAll(false);
+      setShowSyncModal(false);
+      setCustomStartDate(null);
+      setCustomEndDate(null);
+      setNextFollowFilter('all');
+      setInterestFilter('all');
+      fetchTaskData();
     }
   }, [isOpen, selectedTaskId]);
 
-  const fetchTaskFollowupRecords = async () => {
+  // 处理统计卡片点击
+  const handleStatisticsCardClick = (filterType: 'pending' | 'unable_to_judge' | 'interested' | 'not_interested') => {
+    setActiveTab('records');
+    setInterestFilter(filterType);
+  };
+
+  // 定期刷新数据
+  useEffect(() => {
+    if (!isOpen || !selectedTaskId) return;
+
+    const refreshData = () => {
+      fetchTaskData();
+    };
+
+    // 每30秒刷新一次数据
+    const interval = setInterval(refreshData, 30000);
+    
+    return () => clearInterval(interval);
+  }, [isOpen, selectedTaskId]);
+
+  // 处理全选/取消全选
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedRecords(new Set());
+      setSelectAll(false);
+    } else {
+      const allIds = new Set(filteredRecords.map(record => record.id));
+      setSelectedRecords(allIds);
+      setSelectAll(true);
+    }
+  };
+
+  // 处理单个选择
+  const handleSelectRecord = (recordId: string) => {
+    const newSelected = new Set(selectedRecords);
+    if (newSelected.has(recordId)) {
+      newSelected.delete(recordId);
+    } else {
+      newSelected.add(recordId);
+    }
+    setSelectedRecords(newSelected);
+    
+    // 更新全选状态
+    const allFilteredIds = new Set(filteredRecords.map(record => record.id));
+    setSelectAll(newSelected.size === allFilteredIds.size && allFilteredIds.size > 0);
+  };
+
+  // 获取选中的记录
+  const getSelectedRecords = () => {
+    return filteredRecords.filter(record => selectedRecords.has(record.id));
+  };
+
+  const fetchTaskData = async () => {
     if (!selectedTaskId) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      const response = await tasksAPI.getTaskFollowupRecords(selectedTaskId);
+      // 获取任务统计信息
+      const statisticsResponse = await tasksAPI.getTaskStatistics(selectedTaskId);
       
-      if (response.status === 'success') {
-        const data = response.data;
-        setTaskInfo(data.task_info);
-        setCallStatistics(data.call_statistics);
-        setFollowupRecords(data.followup_records || []);
-        
-        // 计算任务完成状态
-        if (data.call_statistics) {
-          const completion: TaskCompletionStatus = {
-            total_leads: data.task_info.leads_count,
-            connected_leads: data.call_statistics.connected_calls,
-            completion_rate: Math.round((data.call_statistics.connected_calls / data.task_info.leads_count) * 100),
-            is_completed: data.call_statistics.connected_calls === data.task_info.leads_count
-          };
-          setTaskCompletion(completion);
-        }
+      if (statisticsResponse.status === 'success') {
+        setTaskStatistics(statisticsResponse.data);
       } else {
-        setError(response.message || '获取任务跟进记录失败');
+        setError(statisticsResponse.message || '获取任务统计信息失败');
+      }
+
+      // 获取任务执行情况（用于获取执行记录）
+      const executionResponse = await tasksAPI.queryTaskExecution(selectedTaskId);
+      
+      if (executionResponse.status === 'success') {
+        const data = executionResponse.data;
+        
+        // 构建任务信息
+        const taskInfo: TaskInfo = {
+          id: data.task_id,
+          task_name: data.task_name,
+          task_type: 3, // 已完成的任务（task_type: 3-外呼完成；4-跟进完成）
+          create_time: data.query_time,
+          leads_count: data.total_jobs,
+          is_completed: true
+        };
+        setTaskInfo(taskInfo);
+        
+        // 转换jobs_data为跟进记录格式
+        const followupRecords: FollowupRecord[] = data.jobs_data.map((job: any, index: number) => {
+          const task = job.Tasks?.[0]; // 取第一个任务
+          const contact = job.Contacts?.[0]; // 取第一个联系人
+          const followData = job.follow_data; // 跟进数据
+          
+          // 确保正确获取 is_interested 值 - 从job根级别获取
+          let isInterested = null;
+          if (job.is_interested !== undefined) {
+            isInterested = job.is_interested;
+          }
+          
+          // 获取下次跟进时间
+          let nextFollowTime = null;
+          if (followData?.next_follow_time) {
+            nextFollowTime = followData.next_follow_time;
+          }
+          
+          // 调试信息：只在开发环境显示
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`Record ${index}:`, {
+              leadName: contact?.ContactName || '未知客户',
+              isInterested: isInterested,
+              jobIsInterested: job.is_interested,
+              followData: followData,
+              nextFollowTime: nextFollowTime
+            });
+          }
+          
+          return {
+            id: `record_${index}`,
+            leadName: contact?.ContactName || '未知客户',
+            phone: contact?.PhoneNumber || task?.CalledNumber || '未知号码',
+            isInterested: isInterested,
+            remark: followData?.leads_remark || '',
+            conversation: task?.Conversation || [],
+            followupTime: task?.ActualTime ? new Date(task.ActualTime).toLocaleString() : '未知时间',
+            callDuration: task?.Duration ? Math.floor(task.Duration / 1000) : 0,
+            nextFollowTime: nextFollowTime
+          };
+        });
+        setFollowupRecords(followupRecords);
+      } else {
+        setError(executionResponse.message || '获取任务执行情况失败');
       }
     } catch (error) {
-      console.error('获取任务跟进记录失败:', error);
-      setError('获取任务跟进记录失败，请重试');
+      console.error('获取任务数据失败:', error);
+      setError('获取任务数据失败，请重试');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const getFollowupTypeColor = (type: string) => {
-    switch (type) {
-      case 'call':
-        return 'text-blue-400 bg-blue-500/20';
-      case 'message':
-        return 'text-green-400 bg-green-500/20';
-      case 'visit':
-        return 'text-purple-400 bg-purple-500/20';
-      default:
-        return 'text-gray-400 bg-gray-500/20';
-    }
-  };
-
-  const getFollowupTypeText = (type: string) => {
-    switch (type) {
-      case 'call':
-        return '电话跟进';
-      case 'message':
-        return '消息跟进';
-      case 'visit':
-        return '上门拜访';
-      default:
-        return '未知类型';
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'success':
-        return 'text-green-400 bg-green-500/20';
-      case 'pending':
-        return 'text-yellow-400 bg-yellow-500/20';
-      case 'failed':
-        return 'text-red-400 bg-red-500/20';
-      default:
-        return 'text-gray-400 bg-gray-500/20';
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'success':
-        return '跟进成功';
-      case 'pending':
-        return '跟进中';
-      case 'failed':
-        return '跟进失败';
-      default:
-        return '未知状态';
     }
   };
 
@@ -162,9 +231,9 @@ export default function FollowupModal({
       case 2:
         return '开始外呼';
       case 3:
-        return '外呼完成';
+        return '跟进中';
       case 4:
-        return '已删除';
+        return '跟进完成';
       default:
         return '未知状态';
     }
@@ -178,12 +247,179 @@ export default function FollowupModal({
       case 2:
         return 'text-yellow-400 bg-yellow-500/20';
       case 3:
-        return 'text-green-400 bg-green-500/20';
+        return 'text-blue-400 bg-blue-500/20';
       case 4:
-        return 'text-red-400 bg-red-500/20';
+        return 'text-green-400 bg-green-500/20';
       default:
         return 'text-gray-400 bg-gray-500/20';
     }
+  };
+
+  const getInterestStatusText = (isInterested: number | null) => {
+    if (isInterested === null) return '待跟进';
+    if (isInterested === 0) return '无法判断';
+    if (isInterested === 1) return '有意向';
+    if (isInterested === 2) return '无意向';
+    return '未知';
+  };
+
+  const getInterestStatusColor = (isInterested: number | null) => {
+    if (isInterested === null) return 'text-yellow-400 bg-yellow-500/20';
+    if (isInterested === 0) return 'text-orange-400 bg-orange-500/20';
+    if (isInterested === 1) return 'text-green-400 bg-green-500/20';
+    if (isInterested === 2) return 'text-red-400 bg-red-500/20';
+    return 'text-gray-400 bg-gray-500/20';
+  };
+
+  // 筛选记录
+  const filteredRecords = followupRecords.filter(record => {
+    // 意向筛选
+    let interestMatch = true;
+    if (interestFilter === 'pending') interestMatch = record.isInterested === null;
+    else if (interestFilter === 'unable_to_judge') interestMatch = record.isInterested === 0;
+    else if (interestFilter === 'interested') interestMatch = record.isInterested === 1;
+    else if (interestFilter === 'not_interested') interestMatch = record.isInterested === 2;
+    
+    // 下次跟进时间筛选
+    let nextFollowMatch = true;
+    if (nextFollowFilter === 'has_next_follow') nextFollowMatch = !!record.nextFollowTime;
+    else if (nextFollowFilter === 'no_next_follow') nextFollowMatch = !record.nextFollowTime;
+    else if (nextFollowFilter === 'custom_range') {
+      if (!record.nextFollowTime) {
+        nextFollowMatch = false;
+      } else {
+        try {
+          const recordDate = new Date(record.nextFollowTime);
+          
+          if (customStartDate && customEndDate) {
+            nextFollowMatch = recordDate >= customStartDate && recordDate <= customEndDate;
+          } else if (customStartDate) {
+            nextFollowMatch = recordDate >= customStartDate;
+          } else if (customEndDate) {
+            nextFollowMatch = recordDate <= customEndDate;
+          } else {
+            nextFollowMatch = true;
+          }
+        } catch {
+          nextFollowMatch = false;
+        }
+      }
+    }
+    
+    return interestMatch && nextFollowMatch;
+  });
+
+  // 切换展开状态
+  const toggleRecordExpansion = (recordId: string) => {
+    const newExpanded = new Set(expandedRecords);
+    if (newExpanded.has(recordId)) {
+      newExpanded.delete(recordId);
+    } else {
+      newExpanded.add(recordId);
+    }
+    setExpandedRecords(newExpanded);
+  };
+
+  // 格式化通话时长
+  const formatDuration = (seconds: number) => {
+    if (!seconds) return '0秒';
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (minutes > 0) {
+      return `${minutes}分${remainingSeconds}秒`;
+    }
+    return `${remainingSeconds}秒`;
+  };
+
+  // 格式化下次跟进时间
+  const formatNextFollowTime = (nextFollowTime: string | null | undefined) => {
+    if (!nextFollowTime) return '-';
+    try {
+      const date = new Date(nextFollowTime);
+      return date.toLocaleString('zh-CN');
+    } catch {
+      return nextFollowTime;
+    }
+  };
+
+  // 渲染对话记录
+  const renderConversation = (conversation: any) => {
+    if (!conversation) return null;
+    
+    // 如果conversation是数组格式（新接口格式）
+    if (Array.isArray(conversation)) {
+      return (
+        <div className="space-y-3">
+          {conversation.map((item, index) => (
+            <div key={index} className="flex items-start space-x-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                item.Speaker === 'Robot' ? 'bg-blue-500/20' : 'bg-green-500/20'
+              }`}>
+                <span className={`text-xs font-medium ${
+                  item.Speaker === 'Robot' ? 'text-blue-400' : 'text-green-400'
+                }`}>
+                  {item.Speaker === 'Robot' ? 'AI' : '客'}
+                </span>
+              </div>
+              <div className="flex-1">
+                <div className="text-xs text-gray-400 mb-1">
+                  {item.Speaker === 'Robot' ? 'AI助手' : '客户'}
+                </div>
+                <div className="text-sm text-white bg-white/5 p-3 rounded-lg">
+                  {item.Script || '无内容'}
+                </div>
+                {item.Summary && item.Summary.length > 0 && (
+                  <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/20 rounded">
+                    <div className="text-xs text-blue-400 mb-1">对话摘要：</div>
+                    {item.Summary.map((summary: any, summaryIndex: number) => (
+                      <div key={summaryIndex} className="text-xs text-blue-300">
+                        {summary.SummaryName}: {summary.Content}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    
+    // 如果conversation是对象格式（旧格式兼容）
+    if (typeof conversation === 'object' && !Array.isArray(conversation)) {
+      return (
+        <div className="space-y-3">
+          {Object.entries(conversation).map(([key, value]: [string, any], index) => (
+            <div key={index} className="flex items-start space-x-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                key.includes('assistant') || key.includes('ai') ? 'bg-blue-500/20' : 'bg-green-500/20'
+              }`}>
+                <span className={`text-xs font-medium ${
+                  key.includes('assistant') || key.includes('ai') ? 'text-blue-400' : 'text-green-400'
+                }`}>
+                  {key.includes('assistant') || key.includes('ai') ? 'AI' : '客'}
+                </span>
+              </div>
+              <div className="flex-1">
+                <div className="text-xs text-gray-400 mb-1">
+                  {key.includes('assistant') || key.includes('ai') ? 'AI助手' : '客户'}
+                </div>
+                <div className="text-sm text-white bg-white/5 p-3 rounded-lg">
+                  {typeof value === 'string' ? value : JSON.stringify(value)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    
+    // 如果是字符串格式
+    return (
+      <div className="text-sm text-white bg-white/5 p-3 rounded-lg">
+        {conversation}
+      </div>
+    );
   };
 
   if (!isOpen) return null;
@@ -198,12 +434,12 @@ export default function FollowupModal({
 
       {/* 弹窗 */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl w-full max-w-6xl max-h-[95vh] overflow-hidden">
+        <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col">
           {/* 弹窗头部 */}
-          <div className="flex items-center justify-between p-6 border-b border-white/10">
+          <div className="flex items-center justify-between p-6 border-b border-white/10 flex-shrink-0">
             <div>
               <h2 className="text-xl font-semibold text-white">跟进记录Agent</h2>
-              <p className="text-gray-400 text-sm mt-1">任务跟进记录和完成情况</p>
+              <p className="text-gray-400 text-sm mt-1">任务执行情况和通话记录</p>
             </div>
             <button
               onClick={onClose}
@@ -215,14 +451,14 @@ export default function FollowupModal({
             </button>
           </div>
 
-          {/* 弹窗内容 */}
+          {/* 弹窗内容 - 支持滚动 */}
           <div className="flex-1 overflow-y-auto p-6">
             {/* 加载状态 */}
             {loading && (
               <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                 <div className="flex items-center justify-center">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
-                  <span className="text-blue-400 ml-2">正在加载任务信息...</span>
+                  <span className="text-blue-400 ml-2">正在加载任务数据...</span>
                 </div>
               </div>
             )}
@@ -300,7 +536,7 @@ export default function FollowupModal({
                       : 'text-gray-400 hover:text-white'
                   }`}
                 >
-                  跟进记录
+                  执行记录
                 </button>
               </div>
             </div>
@@ -308,85 +544,42 @@ export default function FollowupModal({
             {/* 任务概览 */}
             {activeTab === 'overview' && (
               <div className="space-y-6">
-                {/* 任务完成状态 */}
-                {taskCompletion && (
+                {/* 任务统计信息 */}
+                {taskStatistics && (
                   <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-                    <h4 className="text-white font-medium mb-4">任务完成情况</h4>
-                    <div className="grid grid-cols-3 gap-4 mb-4">
+                    <h4 className="text-white font-medium mb-4">执行情况详情</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                       <div className="text-center p-3 bg-white/5 rounded-lg">
-                        <div className="text-blue-400 font-semibold text-lg">{taskCompletion.total_leads}</div>
-                        <div className="text-gray-400 text-xs">总线索</div>
+                        <div className="text-blue-400 font-semibold text-lg">{taskStatistics.total_leads}</div>
+                        <div className="text-gray-400 text-xs">线索数量</div>
                       </div>
-                      <div className="text-center p-3 bg-white/5 rounded-lg">
-                        <div className="text-green-400 font-semibold text-lg">{taskCompletion.connected_leads}</div>
-                        <div className="text-gray-400 text-xs">已接通</div>
+                      <div 
+                        className="text-center p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
+                        onClick={() => handleStatisticsCardClick('pending')}
+                      >
+                        <div className="text-yellow-400 font-semibold text-lg">{taskStatistics.pending_follow}</div>
+                        <div className="text-gray-400 text-xs">待跟进数量</div>
                       </div>
-                      <div className="text-center p-3 bg-white/5 rounded-lg">
-                        <div className={`font-semibold text-lg ${taskCompletion.is_completed ? 'text-green-400' : 'text-yellow-400'}`}>
-                          {taskCompletion.completion_rate}%
-                        </div>
-                        <div className="text-gray-400 text-xs">完成率</div>
+                      <div 
+                        className="text-center p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
+                        onClick={() => handleStatisticsCardClick('unable_to_judge')}
+                      >
+                        <div className="text-orange-400 font-semibold text-lg">{taskStatistics.unable_to_judge}</div>
+                        <div className="text-gray-400 text-xs">无法判断数量</div>
                       </div>
-                    </div>
-                    
-                    {/* 完成状态指示器 */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-400 text-sm">任务状态</span>
-                      <span className={`px-3 py-1 rounded text-sm ${
-                        taskCompletion.is_completed 
-                          ? 'text-green-400 bg-green-500/20' 
-                          : 'text-yellow-400 bg-yellow-500/20'
-                      }`}>
-                        {taskCompletion.is_completed ? '已完成' : '进行中'}
-                      </span>
-                    </div>
-                    
-                    {/* 完成条件说明 */}
-                    <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                      <div className="flex items-start">
-                        <svg className="w-4 h-4 text-blue-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div className="text-blue-300 text-sm">
-                          <p className="font-medium mb-1">完成条件</p>
-                          <p>当任务下的所有电话都处于接通状态时，任务视为已完成。</p>
-                        </div>
+                      <div 
+                        className="text-center p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
+                        onClick={() => handleStatisticsCardClick('interested')}
+                      >
+                        <div className="text-green-400 font-semibold text-lg">{taskStatistics.interested}</div>
+                        <div className="text-gray-400 text-xs">有意向数量</div>
                       </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* 通话统计信息 */}
-                {callStatistics && (
-                  <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-                    <h4 className="text-white font-medium mb-4">通话统计详情</h4>
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div className="text-center p-3 bg-white/5 rounded-lg">
-                        <div className="text-blue-400 font-semibold text-lg">{callStatistics.total_calls}</div>
-                        <div className="text-gray-400 text-xs">总通话</div>
-                      </div>
-                      <div className="text-center p-3 bg-white/5 rounded-lg">
-                        <div className="text-green-400 font-semibold text-lg">{callStatistics.connected_calls}</div>
-                        <div className="text-gray-400 text-xs">已接通</div>
-                      </div>
-                      <div className="text-center p-3 bg-white/5 rounded-lg">
-                        <div className="text-yellow-400 font-semibold text-lg">{callStatistics.success_rate}%</div>
-                        <div className="text-gray-400 text-xs">接通率</div>
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-400">失败通话：</span>
-                        <span className="text-red-400">{callStatistics.failed_calls}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">占线通话：</span>
-                        <span className="text-yellow-400">{callStatistics.busy_calls}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">无人接听：</span>
-                        <span className="text-orange-400">{callStatistics.no_answer_calls}</span>
+                      <div 
+                        className="text-center p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
+                        onClick={() => handleStatisticsCardClick('not_interested')}
+                      >
+                        <div className="text-red-400 font-semibold text-lg">{taskStatistics.not_interested}</div>
+                        <div className="text-gray-400 text-xs">无意向数量</div>
                       </div>
                     </div>
                   </div>
@@ -394,59 +587,249 @@ export default function FollowupModal({
               </div>
             )}
 
-            {/* 跟进记录列表 */}
+            {/* 执行记录列表 */}
             {activeTab === 'records' && (
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-white mb-4">跟进记录</h3>
-                {followupRecords.length === 0 ? (
+                {/* 第一行：标题和操作按钮 */}
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white">执行记录</h3>
+                  
+                  {/* 同步DCC按钮 */}
+                  <button
+                    onClick={() => setShowSyncModal(true)}
+                    disabled={selectedRecords.size === 0}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      selectedRecords.size > 0
+                        ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                        : 'bg-white/10 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    同步DCC ({selectedRecords.size})
+                  </button>
+                </div>
+                
+                {/* 第二行：筛选器 */}
+                <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                  <div className="flex flex-wrap items-center gap-4">
+                    {/* 意向筛选 */}
+                    <div className="flex items-center space-x-2">
+                      <span className="text-gray-400 text-sm whitespace-nowrap">意向筛选：</span>
+                      <select
+                        value={interestFilter}
+                        onChange={(e) => setInterestFilter(e.target.value as any)}
+                        className="bg-white/5 border border-white/20 rounded px-3 py-1 text-sm text-white focus:outline-none focus:border-blue-400"
+                      >
+                        <option value="all">全部</option>
+                        <option value="pending">待跟进</option>
+                        <option value="unable_to_judge">无法判断</option>
+                        <option value="interested">有意向</option>
+                        <option value="not_interested">无意向</option>
+                      </select>
+                    </div>
+                    
+                    {/* 下次跟进筛选 */}
+                    <div className="flex items-center space-x-2">
+                      <span className="text-gray-400 text-sm whitespace-nowrap">下次跟进：</span>
+                      <select
+                        value={nextFollowFilter}
+                        onChange={(e) => setNextFollowFilter(e.target.value as any)}
+                        className="bg-white/5 border border-white/20 rounded px-3 py-1 text-sm text-white focus:outline-none focus:border-blue-400"
+                      >
+                        <option value="all">全部</option>
+                        <option value="has_next_follow">有下次跟进</option>
+                        <option value="no_next_follow">无下次跟进</option>
+                        <option value="custom_range">自定义区间</option>
+                      </select>
+                    </div>
+                    
+                    {/* 自定义时间区间 */}
+                    {nextFollowFilter === 'custom_range' && (
+                      <div className="flex items-center space-x-2">
+                        <span className="text-gray-400 text-sm whitespace-nowrap">时间区间：</span>
+                        <DatePicker
+                          selected={customStartDate}
+                          onChange={(date) => setCustomStartDate(date)}
+                          selectsStart
+                          startDate={customStartDate || undefined}
+                          endDate={customEndDate || undefined}
+                          className="bg-white/5 border border-white/20 rounded px-3 py-1 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-blue-400"
+                          placeholderText="开始时间"
+                          dateFormat="yyyy-MM-dd HH:mm"
+                          showTimeSelect
+                          timeFormat="HH:mm"
+                          timeIntervals={15}
+                        />
+                        <span className="text-gray-400 text-sm">至</span>
+                        <DatePicker
+                          selected={customEndDate}
+                          onChange={(date) => setCustomEndDate(date)}
+                          selectsEnd
+                          startDate={customStartDate || undefined}
+                          endDate={customEndDate || undefined}
+                          minDate={customStartDate || undefined}
+                          className="bg-white/5 border border-white/20 rounded px-3 py-1 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-blue-400"
+                          placeholderText="结束时间"
+                          dateFormat="yyyy-MM-dd HH:mm"
+                          showTimeSelect
+                          timeFormat="HH:mm"
+                          timeIntervals={15}
+                        />
+                      </div>
+                    )}
+                    
+                    {/* 结果统计 */}
+                    <div className="flex items-center space-x-2 ml-auto">
+                      <span className="text-gray-400 text-sm">
+                        筛选结果：{filteredRecords.length}/{followupRecords.length}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* 全选功能 */}
+                {filteredRecords.length > 0 && (
+                  <div className="flex items-center space-x-3 p-3 bg-white/5 rounded-lg">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectAll}
+                        onChange={handleSelectAll}
+                        className="w-4 h-4 text-blue-500 bg-white/10 border-white/20 rounded focus:ring-blue-400 focus:ring-2"
+                      />
+                      <span className="text-white text-sm">全选</span>
+                    </label>
+                    <span className="text-gray-400 text-sm">
+                      已选择 {selectedRecords.size} 条记录
+                    </span>
+                  </div>
+                )}
+                
+                {filteredRecords.length === 0 ? (
                   <div className="text-center py-8 text-gray-400">
                     <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    <p>暂无跟进记录</p>
+                    <p>暂无符合条件的执行记录</p>
                   </div>
                 ) : (
-                  followupRecords.map((record) => (
-                    <div key={record.id} className="bg-white/5 rounded-lg p-4 border border-white/10">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="text-white font-medium">{record.leadName}</h4>
-                          <p className="text-gray-400 text-sm">{record.phone}</p>
+                  <div className="space-y-4">
+                    {filteredRecords.map((record) => (
+                      <div key={record.id} className="bg-white/5 rounded-lg border border-white/10 overflow-hidden">
+                        {/* 记录头部 - 可点击展开 */}
+                        <div className="p-4">
+                          <div className="flex items-start space-x-3">
+                            {/* 勾选框 */}
+                            <div className="flex-shrink-0 pt-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedRecords.has(record.id)}
+                                onChange={() => handleSelectRecord(record.id)}
+                                className="w-4 h-4 text-blue-500 bg-white/10 border-white/20 rounded focus:ring-blue-400 focus:ring-2"
+                              />
+                            </div>
+                            
+                            {/* 记录内容 */}
+                            <div className="flex-1 cursor-pointer" onClick={() => toggleRecordExpansion(record.id)}>
+                              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                                {/* 姓名 */}
+                                <div>
+                                  <div className="text-gray-400 text-xs mb-1">姓名</div>
+                                  <div className="text-white font-medium">{record.leadName}</div>
+                                </div>
+                                
+                                {/* 手机号 */}
+                                <div>
+                                  <div className="text-gray-400 text-xs mb-1">手机号</div>
+                                  <div className="text-white">{record.phone}</div>
+                                </div>
+                                
+                                {/* 有无意向 */}
+                                <div>
+                                  <div className="text-gray-400 text-xs mb-1">有无意向</div>
+                                  <span className={`px-2 py-1 rounded text-xs ${getInterestStatusColor(record.isInterested ?? null)}`}>
+                                    {getInterestStatusText(record.isInterested ?? null)}
+                                  </span>
+                                </div>
+                                
+                                {/* 下次跟进时间 - 仅在有意的记录中显示 */}
+                                {record.isInterested === 1 && (
+                                  <div>
+                                    <div className="text-gray-400 text-xs mb-1">下次跟进时间</div>
+                                    <div className="text-white text-sm">
+                                      {formatNextFollowTime(record.nextFollowTime)}
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {/* 备注 */}
+                                <div>
+                                  <div className="text-gray-400 text-xs mb-1">备注</div>
+                                  <div className="text-white text-sm">
+                                    {record.remark || '-'}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* 展开指示器 */}
+                              <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
+                                <div className="flex items-center space-x-4 text-xs text-gray-400">
+                                  {record.followupTime && (
+                                    <span>执行时间：{record.followupTime}</span>
+                                  )}
+                                  {record.callDuration && (
+                                    <span>通话时长：{formatDuration(record.callDuration)}</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-xs text-gray-400">
+                                    {expandedRecords.has(record.id) ? '收起' : '展开对话'}
+                                  </span>
+                                  <svg 
+                                    className={`w-4 h-4 text-gray-400 transition-transform ${
+                                      expandedRecords.has(record.id) ? 'rotate-180' : ''
+                                    }`} 
+                                    fill="none" 
+                                    stroke="currentColor" 
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                  </svg>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <span className={`px-2 py-1 rounded text-xs ${getFollowupTypeColor(record.followupType)}`}>
-                            {getFollowupTypeText(record.followupType)}
-                          </span>
-                          <span className={`px-2 py-1 rounded text-xs ${getStatusColor(record.status)}`}>
-                            {getStatusText(record.status)}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <div className="mb-3">
-                        <p className="text-gray-300 text-sm">{record.content}</p>
-                      </div>
-                      
-                      <div className="flex items-center justify-between text-xs text-gray-400">
-                        <span>跟进时间：{record.followupTime}</span>
-                        {record.nextFollowup && (
-                          <span>下次跟进：{record.nextFollowup}</span>
+                        
+                        {/* 展开的对话内容 */}
+                        {expandedRecords.has(record.id) && record.conversation && (
+                          <div className="px-4 pb-4 border-t border-white/10">
+                            <div className="mt-4">
+                              <div className="flex items-center mb-3">
+                                <svg className="w-4 h-4 text-purple-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                </svg>
+                                <span className="text-purple-400 font-medium text-sm">通话对话</span>
+                              </div>
+                              {renderConversation(record.conversation)}
+                            </div>
+                          </div>
                         )}
                       </div>
-                      
-                      {record.notes && (
-                        <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded">
-                          <p className="text-yellow-300 text-xs">{record.notes}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* 同步DCC弹窗 */}
+      <SyncDCCModal
+        isOpen={showSyncModal}
+        onClose={() => setShowSyncModal(false)}
+        selectedRecords={getSelectedRecords()}
+      />
     </>
   );
 } 

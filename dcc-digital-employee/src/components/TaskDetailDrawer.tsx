@@ -11,7 +11,7 @@ interface Task {
   targetCount: number;
   createdAt: string;
   status: 'pending' | 'script_configured' | 'completed';
-  task_type?: number; // 1:已创建；2:开始外呼；3:外呼完成；4:已删除
+  task_type?: number; // 1:已创建；2:开始外呼；3:外呼完成；4:跟进完成
   organization_id?: string;
   create_name?: string;
   script_id?: string;
@@ -113,9 +113,14 @@ export default function TaskDetailDrawer({
       const formattedConditions: string[] = [];
       
       // 处理时间区间字段
-      const timeRanges: { [key: string]: { start?: string; end?: string; label: string } } = {};
+      const timeRanges: { [key: string]: { start?: string; end?: string; label: string; ranges?: string[] } } = {};
       
       Object.entries(sizeDesc).forEach(([key, value]) => {
+        // 跳过null值
+        if (value === null) {
+          return;
+        }
+        
         const chineseKey = filterConditionMap[key] || key;
         
         // 处理时间区间字段
@@ -136,11 +141,29 @@ export default function TaskDetailDrawer({
           } else if (key.endsWith('_end')) {
             timeRanges[timeRangeKey].end = String(value);
           }
+        } else if (key.includes('_ranges') && Array.isArray(value)) {
+          // 处理时间区间范围数组
+          const baseKey = key.replace(/_ranges$/, '');
+          const timeRangeKey = baseKey;
+          
+          if (!timeRanges[timeRangeKey]) {
+            timeRanges[timeRangeKey] = {
+              label: filterConditionMap[timeRangeKey] || baseKey,
+              ranges: []
+            };
+          }
+          
+          timeRanges[timeRangeKey].ranges = value;
         } else {
-          // 非时间区间字段直接显示
+          // 非时间区间字段处理
           if (key === 'is_arrive') {
             const boolValue = value === '1' || value === 1 || value === true ? '是' : '否';
             formattedConditions.push(`${chineseKey}: ${boolValue}`);
+          } else if (Array.isArray(value)) {
+            // 处理数组类型的多选值
+            if (value.length > 0) {
+              formattedConditions.push(`${chineseKey}: ${value.join('、')}`);
+            }
           } else {
             formattedConditions.push(`${chineseKey}: ${String(value)}`);
           }
@@ -149,7 +172,14 @@ export default function TaskDetailDrawer({
       
       // 处理时间区间显示
       Object.values(timeRanges).forEach(range => {
-        if (range.start || range.end) {
+        if (range.ranges && range.ranges.length > 0) {
+          // 显示时间区间范围数组
+          const rangeTexts = range.ranges.map(r => {
+            const [start, end] = r.split('_');
+            return `${start} 至 ${end}`;
+          });
+          formattedConditions.push(`${range.label}: ${rangeTexts.join('、')}`);
+        } else if (range.start || range.end) {
           if (range.start && range.end) {
             formattedConditions.push(`${range.label}: ${range.start} 至 ${range.end}`);
           } else if (range.start) {
@@ -173,14 +203,29 @@ export default function TaskDetailDrawer({
   }, [selectedTask]);
 
   // 处理话术配置完成
-  const handleScriptConfigured = (scene: Scene) => {
+  const handleScriptConfigured = async (scene: Scene) => {
     if (localSelectedTask) {
-      setLocalSelectedTask({
-        ...localSelectedTask,
-        selectedScene: scene,
-        script_id: scene.script_id, // 添加script_id字段
-        hasGeneratedScript: true
-      });
+      try {
+        // 调用API更新数据库中的script_id
+        const response = await tasksAPI.updateTaskScriptId(parseInt(localSelectedTask.id), scene.script_id);
+        
+        if (response.status === 'success') {
+          // 更新本地状态
+          setLocalSelectedTask({
+            ...localSelectedTask,
+            selectedScene: scene,
+            script_id: scene.script_id, // 添加script_id字段
+            hasGeneratedScript: true
+          });
+          console.log('任务script_id更新成功:', scene.script_id);
+        } else {
+          console.error('更新任务script_id失败:', response.message);
+          alert('更新任务场景失败，请重试');
+        }
+      } catch (error) {
+        console.error('更新任务script_id出错:', error);
+        alert('更新任务场景失败，请重试');
+      }
     }
   };
 
@@ -199,111 +244,22 @@ export default function TaskDetailDrawer({
   const handleStartCalling = async () => {
     if (!localSelectedTask) return;
 
-    // 验证是否有有效的script_id
-    const scriptId = localSelectedTask.selectedScene?.script_id || localSelectedTask.script_id;
-    if (!scriptId) {
-      alert('请先配置话术场景，获取有效的脚本ID');
-      return;
-    }
-
     try {
-      // 1. 获取任务线索列表
-      const taskDetailsResponse = await tasksAPI.getCallTaskDetails(localSelectedTask.id);
-      if (taskDetailsResponse.status !== 'success') {
-        alert('获取任务线索失败，请重试');
-        return;
-      }
-
-      const taskLeads = taskDetailsResponse.data.task_details || [];
-      if (taskLeads.length === 0) {
-        alert('该任务没有可用的线索');
-        return;
-      }
-
-      // 2. 准备外呼数据
-      const outboundData = {
-        job_group_name: localSelectedTask.name,
-        job_group_description: `执行任务：${localSelectedTask.name}`,
-        strategy_json: {
-          RepeatBy: "once",
-          maxAttemptsPerDay: 3,
-          minAttemptInterval: 120
-        },
-        lead_ids: taskLeads.map((lead: any) => parseInt(lead.leads_id)),
-        script_id: scriptId, // 使用验证过的script_id
-        extras: [
-          {
-            key: "ServiceId",
-            value: ""
-          },
-          {
-            key: "TenantId", 
-            value: ""
-          }
-        ]
-      };
-
-      // 3. 调用外呼API
-      const outboundResponse = await tasksAPI.createOutboundCall(outboundData);
-      if (outboundResponse.status !== 'success') {
-        alert(`外呼发起失败：${outboundResponse.message}`);
-        return;
-      }
-
-      // 4. 更新任务状态为"开始外呼"
-      const updateTaskResponse = await fetch('http://localhost:8000/api/update_task_status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'access-token': localStorage.getItem('access_token') || '',
-        },
-        body: JSON.stringify({
-          task_id: localSelectedTask.id,
-          task_type: 2 // 开始外呼
-        })
-      });
-
-      if (!updateTaskResponse.ok) {
-        console.warn('任务状态更新失败，但外呼已发起');
-        const errorText = await updateTaskResponse.text();
-        console.error('任务状态更新错误:', errorText);
-      }
-
-      // 5. 更新leads_task_list中的call_job_id
-      const jobsId = outboundResponse.data.jobs_id;
-      const leadIds = outboundData.lead_ids;
+      // 调用开始外呼接口
+      const response = await tasksAPI.startCallTask(localSelectedTask.id);
       
-      // 根据传入的leads_ids的顺序，写入到leads_task_list的call_job_id中
-      for (let i = 0; i < leadIds.length && i < jobsId.length; i++) {
-        const updateLeadResponse = await fetch('http://localhost:8000/api/update_lead_job_id', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'access-token': localStorage.getItem('access_token') || '',
-          },
-          body: JSON.stringify({
-            task_id: localSelectedTask.id,
-            leads_id: leadIds[i],
-            call_job_id: jobsId[i]
-          })
-        });
+      if (response.status === 'success') {
+        // 显示成功消息
+        alert('外呼任务已成功发起！外呼Agent开始工作。');
+        
+        // 关闭抽屉
+        onClose();
 
-        if (!updateLeadResponse.ok) {
-          console.warn(`线索 ${leadIds[i]} 的job_id更新失败`);
-          const errorText = await updateLeadResponse.text();
-          console.error('更新线索job_id错误:', errorText);
-        }
+        // 通知父组件外呼成功
+        onOutboundCallSuccess?.();
+      } else {
+        alert(`外呼发起失败：${response.message || '未知错误'}`);
       }
-
-      // 6. 显示成功消息
-      alert('外呼任务已成功发起！外呼Agent开始工作。');
-      
-      // 7. 关闭抽屉
-      onClose();
-
-      // 通知父组件外呼成功
-      onOutboundCallSuccess?.();
-
     } catch (error) {
       console.error('发起外呼失败:', error);
       alert('发起外呼失败，请重试');
@@ -312,7 +268,7 @@ export default function TaskDetailDrawer({
 
   // 检查是否可以开始外呼
   const canStartCalling = () => {
-    return localSelectedTask?.selectedScene && localSelectedTask?.hasGeneratedScript;
+    return localSelectedTask?.selectedScene;
   };
 
   if (!isOpen || !localSelectedTask) return null;
@@ -499,7 +455,7 @@ export default function TaskDetailDrawer({
                   }`}>
                     {canStartCalling() 
                       ? '开始执行外呼任务' 
-                      : '请先配置话术并生成话术'
+                      : '请先配置话术场景'
                     }
                   </p>
                 </button>

@@ -555,3 +555,29 @@ body {
     @apply px-2 py-2;
   }
 }
+
+/* 优化字体加载 */
+@font-face {
+  font-family: 'Inter';
+  font-display: swap;
+  src: url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+}
+
+/* 减少控制台警告的样式 */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 优化动画性能 */
+* {
+  box-sizing: border-box;
+}
+
+/* 减少重绘和重排 */
+.robot-working,
+.robot-glow,
+.progress-shimmer {
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}

@@ -29,9 +29,21 @@ def init_database():
         # 选择数据库
         cursor.execute(f"USE `{db_name}`")
         
-        # 读取SQL文件
-        sql_file_path = os.path.join(os.path.dirname(__file__), 'create_tables.sql')
-        with open(sql_file_path, 'r', encoding='utf-8') as sql_file:
+        # 读取并执行create_tables.sql文件
+        create_tables_path = os.path.join(os.path.dirname(__file__), 'create_tables.sql')
+        with open(create_tables_path, 'r', encoding='utf-8') as sql_file:
+            # 拆分SQL语句
+            sql_commands = sql_file.read().split(';')
+            
+            # 执行每个SQL语句
+            for command in sql_commands:
+                if command.strip():
+                    cursor.execute(command)
+                    conn.commit()
+        
+        # 读取并执行call_tasks.sql文件
+        call_tasks_path = os.path.join(os.path.dirname(__file__), 'call_tasks.sql')
+        with open(call_tasks_path, 'r', encoding='utf-8') as sql_file:
             # 拆分SQL语句
             sql_commands = sql_file.read().split(';')
             

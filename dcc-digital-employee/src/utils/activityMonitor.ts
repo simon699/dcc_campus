@@ -7,7 +7,9 @@ class ActivityMonitor {
   private lastActivityTime: number = Date.now();
   private isMonitoring: boolean = false;
   private readonly INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30分钟无操作
-  private readonly CHECK_INTERVAL = 5 * 60 * 1000; // 每5分钟检查一次
+  private readonly CHECK_INTERVAL = 10 * 60 * 1000; // 每10分钟检查一次，减少频率
+  private lastTokenCheck: number = 0;
+  private readonly TOKEN_CHECK_COOLDOWN = 5 * 60 * 1000; // 5分钟内不重复检查token
 
   constructor() {
     this.setupEventListeners();
@@ -18,20 +20,15 @@ class ActivityMonitor {
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
     
     events.forEach(event => {
-      document.addEventListener(event, this.handleUserActivity.bind(this), true);
+      document.addEventListener(event, () => this.handleUserActivity(), { passive: true });
     });
 
     // 监听页面可见性变化
-    document.addEventListener('visibilitychange', this.handleVisibilityChange.bind(this));
+    document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
   }
 
   private handleUserActivity() {
     this.lastActivityTime = Date.now();
-    
-    // 如果之前没有在监控，现在开始监控
-    if (!this.isMonitoring) {
-      this.startMonitoring();
-    }
   }
 
   private handleVisibilityChange() {
@@ -72,8 +69,17 @@ class ActivityMonitor {
   }
 
   private async checkTokenValidity() {
+    // 检查是否在冷却期内
+    const now = Date.now();
+    if (now - this.lastTokenCheck < this.TOKEN_CHECK_COOLDOWN) {
+      console.log('活动监听器：Token检查在冷却期内，跳过');
+      this.scheduleNextCheck();
+      return;
+    }
+
     try {
       console.log('活动监听器：检查token有效性...');
+      this.lastTokenCheck = now;
       const isValid = await checkTokenValidity();
       if (!isValid) {
         console.log('活动监听器：Token无效，处理token失效');

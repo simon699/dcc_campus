@@ -25,8 +25,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    // 在组件挂载时检查用户是否已登录
     const checkUser = async () => {
+      setLoading(true);
+      
       try {
         const storedUser = localStorage.getItem('user');
         const accessToken = localStorage.getItem('access_token');
@@ -42,53 +43,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // 启动活动监听器
             getActivityMonitor().start();
           } else {
-            console.log('AuthContext：Token无效，清除用户信息并跳转到登录页面');
-            // Token无效，清除用户信息并跳转到登录页面
+            console.log('AuthContext：Token无效，跳转到登录页面');
             handleTokenExpired();
+            return;
           }
         } else {
-          console.log('AuthContext：未找到用户信息或token');
+          console.log('AuthContext：未找到用户信息或token，跳转到登录页面');
+          router.push('/login');
+          return;
         }
       } catch (err) {
         console.error('AuthContext：检查用户信息失败:', err);
-        // 发生错误时，清除可能损坏的数据
         handleTokenExpired();
+        return;
       } finally {
         setLoading(false);
       }
     };
 
     checkUser();
-  }, []);
+  }, [router]); // 移除isTokenValidating依赖
 
   const login = async (username: string, password: string) => {
     setLoading(true);
     
     try {
-      // 模拟API请求
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // 在实际应用中，这里应该调用API进行身份验证
-      if (!username || !password) {
-        throw new Error('用户名和密码不能为空');
+      // 调用API进行身份验证
+      const response = await fetch('http://localhost:8000/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!response.ok) {
+        throw new Error('登录失败');
       }
-      
-      if (password.length < 3) {
-        throw new Error('密码不正确');
+
+      const result = await response.json();
+
+      if (result.status === 'success' && result.data) {
+        const { user_info, access_token } = result.data;
+        
+        const userData = { 
+          username: user_info.username,
+          dcc_user: user_info.dcc_user 
+        };
+        
+        // 存储用户信息和token
+        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem('access_token', access_token);
+        
+        // 设置cookie
+        document.cookie = `user=${JSON.stringify({ username: user_info.username })}; path=/; max-age=86400; samesite=lax`;
+        document.cookie = `access_token=${access_token}; path=/; max-age=86400; samesite=lax`;
+        
+        // 检查是否需要绑定DCC账号
+        if (!user_info.dcc_user) {
+          // 将需要绑定DCC的信息存储到sessionStorage
+          sessionStorage.setItem('needBindDcc', 'true');
+        }
+        
+        setUser(userData);
+        
+        // 启动活动监听器
+        getActivityMonitor().start();
+        
+        router.push('/');
+      } else {
+        throw new Error(result.message || '登录失败');
       }
-      
-      const userData = { username };
-      
-      // 存储用户信息
-      localStorage.setItem('user', JSON.stringify(userData));
-      document.cookie = `user=${JSON.stringify(userData)}; path=/; max-age=86400; samesite=strict`;
-      
-      setUser(userData);
-      
-      // 启动活动监听器
-      getActivityMonitor().start();
-      
-      router.push('/');
     } catch (error) {
       if (error instanceof Error) {
         throw error;

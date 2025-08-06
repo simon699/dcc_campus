@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '../../contexts/AuthContext';
 import Header from '../../components/Header';
 
 interface HistoryRecord {
@@ -34,92 +35,57 @@ interface HistoryRecord {
 
 export default function ReportHistoryPage() {
   const router = useRouter();
+  const { user, loading } = useAuth();
   const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>([]);
 
-  useEffect(() => {
-    // 模拟历史记录数据
-    const mockHistory: HistoryRecord[] = [
-      {
-        id: '1',
-        date: '2024-01-25',
-        monitorAlerts: [
-          {
-            title: '存在长时间未跟进的线索',
-            description: '发现3条超过7天未跟进的线索，建议发起智能外呼，进行跟进',
-            leadCount: 3
-          },
-          {
-            title: '存在可转化的线索',
-            description: '发现2条高价值转化线索，可发起智能外呼，进行跟进',
-            leadCount: 2
-          }
-        ],
-        callResults: {
-          totalCalls: 5,
-          successRate: 80,
-          averageDuration: '2分30秒',
-          conversionCount: 3
-        },
-        qualityResults: {
-          totalQuality: 5,
-          highScoreCount: 2,
-          mediumScoreCount: 2,
-          lowScoreCount: 1,
-          averageScore: 82
-        },
-        reportResults: [
-          {
-            title: '外呼效果分析报告',
-            type: 'analysis',
-            summary: '本次外呼活动共完成5个客户联系，接通率80%，平均通话时长2分30秒。质检结果显示：2个客户通话质量优秀，2个客户通话质量良好，1个客户需要改进。其中4个客户表现出明显兴趣，建议重点跟进。'
-          },
-          {
-            title: '客户跟进建议报告',
-            type: 'summary',
-            summary: '根据质检结果分析，建议对张三、李四、王五、赵六等4位客户进行重点跟进，他们对外呼内容反应积极，质检评分较高，有较强的购买意向。'
-          }
-        ]
-      },
-      {
-        id: '2',
-        date: '2024-01-24',
-        monitorAlerts: [
-          {
-            title: '存在长时间未跟进的线索',
-            description: '发现4条超过7天未跟进的线索，建议发起智能外呼，进行跟进',
-            leadCount: 4
-          }
-        ],
-        callResults: {
-          totalCalls: 4,
-          successRate: 75,
-          averageDuration: '2分15秒',
-          conversionCount: 2
-        },
-        qualityResults: {
-          totalQuality: 4,
-          highScoreCount: 1,
-          mediumScoreCount: 2,
-          lowScoreCount: 1,
-          averageScore: 78
-        },
-        reportResults: [
-          {
-            title: '外呼效果分析报告',
-            type: 'analysis',
-            summary: '本次外呼活动共完成4个客户联系，接通率75%，平均通话时长2分15秒。质检结果显示：1个客户通话质量优秀，2个客户通话质量良好，1个客户需要改进。其中3个客户表现出明显兴趣，建议重点跟进。'
-          },
-          {
-            title: '客户跟进建议报告',
-            type: 'summary',
-            summary: '根据质检结果分析，建议对张三、李四、王五等3位客户进行重点跟进，他们对外呼内容反应积极，质检评分较高，有较强的购买意向。'
-          }
-        ]
-      }
-    ];
+  // 如果正在加载或验证token，显示加载状态
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-flex items-center space-x-3 mb-4">
+            <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" />
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+              DCC 数字员工
+            </h1>
+            <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse delay-500" />
+          </div>
+          <div className="flex items-center justify-center space-x-2">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+            <span className="text-gray-300 text-sm">
+              正在加载...
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-    setHistoryRecords(mockHistory);
+  // 如果没有用户信息，跳转到登录页面
+  if (!user) {
+    return null; // 返回null，让AuthContext处理跳转
+  }
+
+  useEffect(() => {
+    // 获取真实的历史记录数据
+    fetchHistoryRecords();
   }, []);
+
+  const fetchHistoryRecords = async () => {
+    try {
+      // 这里可以调用API获取真实的历史记录数据
+      // const response = await historyAPI.getHistoryRecords();
+      // if (response.status === 'success') {
+      //   setHistoryRecords(response.data);
+      // }
+      
+      // 暂时设置为空，等待真实API实现
+      setHistoryRecords([]);
+    } catch (error) {
+      console.error('获取历史记录失败:', error);
+      setHistoryRecords([]);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">

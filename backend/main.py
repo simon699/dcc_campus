@@ -2,16 +2,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 import uvicorn
+import asyncio
+import threading
 from api.health import health_router
 from api.login import login_router
 from api.createOrganization import organization_router
-from api.products import products_router
-from api.auto_call import auto_call_router
 from api.scene import scene_router
 from api.dcc_user import dcc_user_router
 from api.dcc_leads import dcc_leads_router
-from api.call_tasks import call_tasks_router
+from api.auto_call_api import auto_call_router
 from api.auth_verify import auth_verify_router
+from api.auto_task_monitor import auto_task_monitor
 from swagger_config import tags_metadata
 
 app = FastAPI(
@@ -143,13 +144,37 @@ async def custom_redoc_html():
 app.include_router(health_router, prefix="/api")
 app.include_router(login_router, prefix="/api")
 app.include_router(organization_router, prefix="/api")
-app.include_router(products_router, prefix="/api")
-app.include_router(auto_call_router, prefix="/api")
 app.include_router(scene_router, prefix="/api")
 app.include_router(dcc_user_router, prefix="/api")
 app.include_router(dcc_leads_router, prefix="/api")
-app.include_router(call_tasks_router, prefix="/api")
+app.include_router(auto_call_router, prefix="/api")
 app.include_router(auth_verify_router, prefix="/api")
+
+# 应用启动事件
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时自动启动自动化任务监控"""
+    print("🚀 DCC数字员工服务启动中...")
+    
+    # 启动自动化任务监控
+    try:
+        # 创建后台任务启动监控
+        asyncio.create_task(auto_task_monitor.start_monitoring())
+        print("✅ 自动化任务监控已启动")
+    except Exception as e:
+        print(f"❌ 启动自动化任务监控失败: {str(e)}")
+
+# 应用关闭事件
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时停止自动化任务监控"""
+    print("🛑 DCC数字员工服务正在关闭...")
+    
+    try:
+        await auto_task_monitor.stop_monitoring()
+        print("✅ 自动化任务监控已停止")
+    except Exception as e:
+        print(f"❌ 停止自动化任务监控失败: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

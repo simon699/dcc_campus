@@ -19,8 +19,8 @@ def get_database_connection():
         connection = mysql.connector.connect(
             host=os.getenv('DB_HOST', 'localhost'),
             user=os.getenv('DB_USER', 'root'),
-            password=os.getenv('DB_PASSWORD', ''),
-            database=os.getenv('DB_NAME', 'dcc_database')
+            password=os.getenv('DB_PASSWORD', 'sfw3470699'),
+            database=os.getenv('DB_NAME', 'dcc_employee_db')
         )
         return connection
     except Error as e:

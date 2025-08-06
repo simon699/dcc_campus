@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -11,6 +12,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const { login, user } = useAuth();
 
   // Generate a random captcha code (简化为4位数字+字母)
   const generateCaptcha = () => {
@@ -26,6 +28,13 @@ export default function Login() {
   useEffect(() => {
     generateCaptcha();
   }, []);
+
+  // 如果用户已登录，跳转到首页
+  useEffect(() => {
+    if (user) {
+      router.push('/');
+    }
+  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,43 +60,8 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (!response.ok) {
-        throw new Error('登录失败');
-      }
-
-      const result = await response.json();
-
-      if (result.status === 'success' && result.data) {
-        const { user_info, access_token } = result.data;
-
-        // Store user info and access token in localStorage
-        localStorage.setItem('user', JSON.stringify({ 
-          username: user_info.username,
-          dcc_user: user_info.dcc_user 
-        }));
-        localStorage.setItem('access_token', access_token);
-
-        // Set a cookie for middleware authentication
-        document.cookie = `user=${JSON.stringify({ username: user_info.username })}; path=/; max-age=86400; samesite=strict`;
-        document.cookie = `access_token=${access_token}; path=/; max-age=86400; samesite=strict`;
-
-        // 检查是否需要绑定DCC账号
-        if (!user_info.dcc_user) {
-          // 将需要绑定DCC的信息存储到sessionStorage
-          sessionStorage.setItem('needBindDcc', 'true');
-        }
-      } else {
-        throw new Error(result.message || '登录失败');
-      }
-      router.push('/');
+      // 直接使用AuthContext的login方法
+      await login(username, password);
     } catch (err) {
       setError('登录失败，请重试');
       console.error('Login error:', err);
@@ -150,6 +124,7 @@ export default function Login() {
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all duration-200"
                   placeholder="请输入用户名"
+                  autoComplete="username"
                   required
                 />
               </div>
@@ -165,6 +140,7 @@ export default function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all duration-200"
                   placeholder="请输入密码"
+                  autoComplete="current-password"
                   required
                 />
               </div>

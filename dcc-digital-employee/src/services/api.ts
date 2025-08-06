@@ -1,18 +1,38 @@
 // API服务文件
 import { handleTokenExpired } from '../utils/tokenUtils';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = 'http://your-server-ip:8000/api';
+// 或者使用域名：const API_BASE_URL = 'https://your-domain.com/api';
+
+// Token缓存机制
+let tokenCache = {
+  token: null as string | null,
+  isValid: false,
+  lastCheck: 0,
+  cacheDuration: 5 * 60 * 1000 // 5分钟缓存
+};
 
 // 获取访问令牌
 const getAuthToken = (): string | null => {
-  return localStorage.getItem('access_token');
+  const token = localStorage.getItem('access_token');
+  tokenCache.token = token;
+  return token;
 };
 
 // 简化的token校验方法
 export const checkTokenValidity = async (): Promise<boolean> => {
   const token = getAuthToken();
   if (!token) {
+    tokenCache.isValid = false;
     return false;
+  }
+
+  // 检查缓存是否有效
+  const now = Date.now();
+  if (tokenCache.token === token && 
+      tokenCache.isValid && 
+      (now - tokenCache.lastCheck) < tokenCache.cacheDuration) {
+    return true;
   }
 
   try {
@@ -26,18 +46,55 @@ export const checkTokenValidity = async (): Promise<boolean> => {
 
     if (response.ok) {
       const result = await response.json();
-      return result.status === 'success';
+      const isValid = result.status === 'success';
+      
+      // 更新缓存
+      tokenCache.isValid = isValid;
+      tokenCache.lastCheck = now;
+      
+      return isValid;
     }
+    
+    // 更新缓存
+    tokenCache.isValid = false;
+    tokenCache.lastCheck = now;
     return false;
   } catch (error) {
     console.error('Token验证失败:', error);
+    // 更新缓存
+    tokenCache.isValid = false;
+    tokenCache.lastCheck = now;
     return false;
   }
 };
 
-// 检查token是否有效
+// 检查token是否有效（带缓存）
 const isTokenValid = async (): Promise<boolean> => {
+  const token = getAuthToken();
+  if (!token) {
+    return false;
+  }
+
+  // 如果缓存中的token不匹配，清除缓存
+  if (tokenCache.token !== token) {
+    tokenCache.isValid = false;
+    tokenCache.lastCheck = 0;
+  }
+
+  // 检查缓存是否有效
+  const now = Date.now();
+  if (tokenCache.isValid && (now - tokenCache.lastCheck) < tokenCache.cacheDuration) {
+    return true;
+  }
+
+  // 缓存无效，重新验证
   return await checkTokenValidity();
+};
+
+// 清除token缓存
+export const clearTokenCache = () => {
+  tokenCache.isValid = false;
+  tokenCache.lastCheck = 0;
 };
 
 // 通用API请求函数
@@ -51,13 +108,8 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
     throw new Error('未登录，请先登录');
   }
 
-  // 检查token是否有效
-  const isValid = await isTokenValid();
-  if (!isValid) {
-    console.log('Token验证失败，跳转到登录页面');
-    handleTokenExpired();
-    throw new Error('登录已过期，请重新登录');
-  }
+  // 异步检查token有效性，不阻塞请求
+  const tokenCheckPromise = isTokenValid();
   
   const defaultHeaders = {
     'Content-Type': 'application/json',
@@ -78,6 +130,7 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
     // 如果响应状态是401（未授权），说明token无效
     if (response.status === 401) {
       console.log('收到401响应，token无效，跳转到登录页面');
+      clearTokenCache();
       handleTokenExpired();
       throw new Error('登录已过期，请重新登录');
     }
@@ -86,14 +139,25 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
       throw new Error(`API请求失败: ${response.status}`);
     }
 
+    // 异步检查token有效性，如果无效则清除缓存
+    tokenCheckPromise.then(isValid => {
+      if (!isValid) {
+        clearTokenCache();
+      }
+    }).catch(() => {
+      // token检查失败，清除缓存
+      clearTokenCache();
+    });
+
     return response.json();
   } catch (error) {
     // 如果是网络错误或其他错误，也检查token
     if (error instanceof TypeError) {
       // 网络错误，可能是token问题
       console.log('网络错误，检查token有效性');
-      const isValid = await isTokenValid();
+      const isValid = await tokenCheckPromise;
       if (!isValid) {
+        clearTokenCache();
         handleTokenExpired();
         throw new Error('登录已过期，请重新登录');
       }
@@ -147,12 +211,17 @@ export const leadsAPI = {
 export const tasksAPI = {
   // 获取外呼任务列表
   getCallTasksList: async () => {
-    return apiRequest('/call-tasks/list');
+    return apiRequest('/tasks');
+  },
+
+  // 获取话术生成任务列表（只返回待生成话术的任务）
+  getScriptTasksList: async () => {
+    return apiRequest('/tasks');
   },
 
   // 获取任务统计数据
   getCallTasksStatistics: async () => {
-    return apiRequest('/call-tasks/statistics');
+    return apiRequest('/task-stats');
   },
 
   // 获取任务详情
@@ -160,16 +229,7 @@ export const tasksAPI = {
     return apiRequest(`/call-tasks/list?task_id=${taskId}`);
   },
 
-  // 检查任务完成状态
-  checkTaskCompletion: async (taskId: number, taskType: number) => {
-    return apiRequest('/check_task_completion', {
-      method: 'POST',
-      body: JSON.stringify({
-        task_id: taskId,
-        task_type: taskType
-      })
-    });
-  },
+
 
   // 获取任务跟进记录
   getTaskFollowupRecords: async (taskId: number) => {
@@ -181,13 +241,19 @@ export const tasksAPI = {
     task_name: string;
     script_id?: string;
     size_desc: {
-      leads_product?: string;
+      leads_type: string[];
+      leads_product: string[];
+      first_follow_start?: string;
+      first_follow_end?: string;
+      latest_follow_start?: string;
+      latest_follow_end?: string;
       next_follow_start?: string;
       next_follow_end?: string;
+      is_arrive?: number[];
       [key: string]: any;
     };
   }) => {
-    return apiRequest('/call-tasks/create', {
+    return apiRequest('/create-autoCall-tasks', {
       method: 'POST',
       body: JSON.stringify(taskData)
     });
@@ -228,6 +294,81 @@ export const tasksAPI = {
     return apiRequest('/query_outbound_call', {
       method: 'POST',
       body: JSON.stringify({ job_ids: jobIds })
+    });
+  },
+
+  // 检查任务完成状态
+  checkTaskStatus: async (taskId: string) => {
+    return apiRequest(`/check_task_status/${taskId}`);
+  },
+
+  // 获取任务状态详情
+  getTaskStatusDetails: async (taskId: string) => {
+    return apiRequest(`/task_status_details/${taskId}`);
+  },
+
+  // 查询任务执行情况（新接口）
+  queryTaskExecution: async (taskId: number) => {
+    return apiRequest('/query-task-execution', {
+      method: 'POST',
+      body: JSON.stringify({
+        task_id: taskId
+      })
+    });
+  },
+
+  // 获取任务统计信息（新接口）
+  getTaskStatistics: async (taskId: number) => {
+    return apiRequest('/task-statistics', {
+      method: 'POST',
+      body: JSON.stringify({
+        task_id: taskId
+      })
+    });
+  },
+
+  // 获取已完成的任务列表（跟进Agent专用）
+  getCompletedTasksList: async () => {
+    return apiRequest('/tasks');
+  },
+
+  // 批量检查任务状态
+  batchCheckTaskStatus: async (taskIds: string[]) => {
+    return apiRequest('/batch_check_task_status', {
+      method: 'POST',
+      body: JSON.stringify({ job_ids: taskIds })
+    });
+  },
+
+  // 更新任务script_id
+  updateTaskScriptId: async (taskId: number, scriptId: string) => {
+    return apiRequest('/update-script-id', {
+      method: 'POST',
+      body: JSON.stringify({
+        task_id: taskId,
+        script_id: scriptId
+      })
+    });
+  },
+
+  // 开始外呼任务
+  startCallTask: async (taskId: string) => {
+    return apiRequest('/start-call-task', {
+      method: 'POST',
+      body: JSON.stringify({
+        task_id: taskId
+      })
+    });
+  },
+
+  // 暂停/重启任务
+  suspendResumeTask: async (taskId: number, action: 'suspend' | 'resume') => {
+    return apiRequest('/suspend-resume-task', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: action,
+        task_id: taskId
+      })
     });
   }
 };

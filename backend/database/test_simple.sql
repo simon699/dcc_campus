@@ -1,0 +1,21 @@
+-- 创建用户表
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(64) NOT NULL,
+    phone VARCHAR(20) NOT NULL UNIQUE,
+    organization_id VARCHAR(20) NOT NULL,
+    create_time DATETIME NOT NULL,
+    user_role INT NOT NULL,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 创建组织表
+CREATE TABLE IF NOT EXISTS organizations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    organization_id VARCHAR(20) NOT NULL UNIQUE,
+    organization_type INT NOT NULL,
+    create_time DATETIME NOT NULL,
+    end_time DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; 

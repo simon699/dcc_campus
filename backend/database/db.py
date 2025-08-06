@@ -55,6 +55,11 @@ def execute_update(query, params=None):
     with get_connection() as conn:
         with conn.cursor() as cursor:
             affected_rows = cursor.execute(query, params or ())
+            # 如果是INSERT操作，返回插入的ID
+            if query.strip().upper().startswith('INSERT'):
+                last_id = cursor.lastrowid
+                conn.commit()
+                return last_id
         conn.commit()
         return affected_rows
 

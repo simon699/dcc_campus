@@ -5,12 +5,11 @@ import sys
 
 from typing import List
 
-
-from alibabacloud_outboundbot20191226.client import Client as OutboundBot20191226Client
+from alibabacloud_tea_openapi.client import Client as OpenApiClient
+from alibabacloud_credentials.client import Client as CredentialClient
 from alibabacloud_tea_openapi import models as open_api_models
-from alibabacloud_outboundbot20191226 import models as outbound_bot_20191226_models
 from alibabacloud_tea_util import models as util_models
-from alibabacloud_tea_util.client import Client as UtilClient
+from alibabacloud_openapi_util.client import Client as OpenApiUtilClient
 
 
 class Sample:
@@ -18,77 +17,90 @@ class Sample:
         pass
 
     @staticmethod
-    def create_client() -> OutboundBot20191226Client:
+    def create_client() -> OpenApiClient:
         """
-        使用AK&SK初始化账号Client
+        使用凭据初始化账号Client
         @return: Client
         @throws Exception
         """
-        # 工程代码泄露可能会导致 AccessKey 泄露，并威胁账号下所有资源的安全性。以下代码示例仅供参考。
-        # 建议使用更安全的 STS 方式，更多鉴权访问方式请参见：https://help.aliyun.com/document_detail/378659.html。
+        # 工程代码建议使用更安全的无AK方式，凭据配置方式请参见：https://help.aliyun.com/document_detail/378659.html。
+        credential = CredentialClient()
         config = open_api_models.Config(
-            # 必填，请确保代码运行环境设置了环境变量 ALIBABA_CLOUD_ACCESS_KEY_ID。,
-            access_key_id=os.getenv('ALIBABA_CLOUD_ACCESS_KEY_ID'),
-            # 必填，请确保代码运行环境设置了环境变量 ALIBABA_CLOUD_ACCESS_KEY_SECRET。,
-            access_key_secret=os.getenv('ALIBABA_CLOUD_ACCESS_KEY_SECRET')
+            credential=credential
         )
         # Endpoint 请参考 https://api.aliyun.com/product/OutboundBot
         config.endpoint = f'outboundbot.cn-shanghai.aliyuncs.com'
-        return OutboundBot20191226Client(config)
+        return OpenApiClient(config)
+
+    @staticmethod
+    def create_api_info() -> open_api_models.Params:
+        """
+        API 相关
+        @param path: string Path parameters
+        @return: OpenApi.Params
+        """
+        params = open_api_models.Params(
+            # 接口名称,
+            action='ListJobs',
+            # 接口版本,
+            version='2019-12-26',
+            # 接口协议,
+            protocol='HTTPS',
+            # 接口 HTTP 方法,
+            method='POST',
+            auth_type='AK',
+            style='RPC',
+            # 接口 PATH,
+            pathname=f'/',
+            # 接口请求体内容格式,
+            req_body_type='json',
+            # 接口响应体内容格式,
+            body_type='json'
+        )
+        return params
 
     @staticmethod
     def main(
         args: List[str],
-        job_id: list
+        job_ids: List[str]
     ) -> None:
         client = Sample.create_client()
-        list_jobs_request = outbound_bot_20191226_models.ListJobsRequest(
-            instance_id=os.getenv('INSTANCE_ID'),
-            job_id=job_id
-        )
+        params = Sample.create_api_info()
+        # query params
+        queries = {}
+        queries['InstanceId'] = os.getenv('INSTANCE_ID')
+        for i, job_id in enumerate(job_ids, 1):
+            queries[f'JobId.{i}'] = job_id
+        # runtime options
         runtime = util_models.RuntimeOptions()
-        try:
-            # 复制代码运行请自行打印 API 的返回值
-            response = client.list_jobs_with_options(list_jobs_request, runtime)
-            print(response)
-            return response.body.jobs
-        except Exception as error:
-            # 此处仅做打印展示，请谨慎对待异常处理，在工程项目中切勿直接忽略异常。
-            # 错误 message
-            print(f"API Error: {error.message}")
-            # 诊断地址
-            if hasattr(error, 'data') and error.data:
-                print(f"Recommend: {error.data.get('Recommend', 'No recommendation')}")
-            else:
-                print("No diagnostic information available")
-            raise error
-
+        request = open_api_models.OpenApiRequest(
+            query=OpenApiUtilClient.query(queries)
+        )
+        # 复制代码运行请自行打印 API 的返回值
+        # 返回值实际为 Map 类型，可从 Map 中获得三类数据：响应体 body、响应头 headers、HTTP 返回的状态码 statusCode。
+        response = client.call_api(params, request, runtime)
+        return response['body']['Jobs']
     @staticmethod
     async def main_async(
         args: List[str],
-        job_id: list
     ) -> None:
         client = Sample.create_client()
-        list_jobs_request = outbound_bot_20191226_models.ListJobsRequest(
-            instance_id=os.getenv('INSTANCE_ID'),
-            job_id=job_id
-        )
+        params = Sample.create_api_info()
+        # query params
+        queries = {}
+        queries['InstanceId'] = '44f9ce96-c55c-4277-bad9-e7eaa7653644'
+        queries['JobId.1'] = '1754361186153-4493-885b-86b85052aae9'
+        queries['JobId.2'] = '1754361186153-4706-a958-d7043a44637e'
+        queries['JobId.3'] = '1754361186153-4804-bc4c-42c9abb21f4b'
+        # runtime options
         runtime = util_models.RuntimeOptions()
-        try:
-            # 复制代码运行请自行打印 API 的返回值
-            await client.list_jobs_with_options_async(list_jobs_request, runtime)
-        except Exception as error:
-            # 此处仅做打印展示，请谨慎对待异常处理，在工程项目中切勿直接忽略异常。
-            # 错误 message
-            print(f"API Error: {error.message}")
-            # 诊断地址
-            if hasattr(error, 'data') and error.data:
-                print(f"Recommend: {error.data.get('Recommend', 'No recommendation')}")
-            else:
-                print("No diagnostic information available")
-            raise error
+        request = open_api_models.OpenApiRequest(
+            query=OpenApiUtilClient.query(queries)
+        )
+        # 复制代码运行请自行打印 API 的返回值
+        # 返回值实际为 Map 类型，可从 Map 中获得三类数据：响应体 body、响应头 headers、HTTP 返回的状态码 statusCode。
+        await client.call_api_async(params, request, runtime)
 
 
 if __name__ == '__main__':
-    Sample.main(sys.argv[1:], 
-                ["1c00013c-f4fa-4a81-af55-4c81940dd759"])
+    Sample.main(sys.argv[1:])

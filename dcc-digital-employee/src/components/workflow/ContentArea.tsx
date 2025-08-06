@@ -15,7 +15,6 @@ interface ContentAreaProps {
   selectedAnalysisResult: any;
   onTabChange: (tab: 'manual' | 'ai') => void;
   onUserInputChange: (input: string) => void;
-  onConfigModalOpen: () => void;
   onInitiatePlan: () => void;
   onStartCalling: () => void;
   onViewReport: () => void;
@@ -36,7 +35,6 @@ export default function ContentArea({
   selectedAnalysisResult,
   onTabChange,
   onUserInputChange,
-  onConfigModalOpen,
   onInitiatePlan,
   onStartCalling,
   onViewReport,
@@ -371,7 +369,7 @@ export default function ContentArea({
               <button 
                 className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 
                          text-white font-semibold rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
-                onClick={onConfigModalOpen}
+                onClick={() => alert('配置功能已移除，请使用智能分析功能')}
               >
                 {selectedConditions.length > 0 ? '修改配置' : '开始配置'}
               </button>

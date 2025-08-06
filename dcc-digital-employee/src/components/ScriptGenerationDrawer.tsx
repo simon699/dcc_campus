@@ -189,9 +189,14 @@ export default function ScriptGenerationDrawer({ isOpen, onClose, selectedTask, 
       const formattedConditions: string[] = [];
       
       // 处理时间区间字段
-      const timeRanges: { [key: string]: { start?: string; end?: string; label: string } } = {};
+      const timeRanges: { [key: string]: { start?: string; end?: string; label: string; ranges?: string[] } } = {};
       
       Object.entries(sizeDesc).forEach(([key, value]) => {
+        // 跳过null值
+        if (value === null || value === undefined || value === '') {
+          return;
+        }
+        
         const chineseKey = filterConditionMap[key] || key;
         
         // 处理时间区间字段
@@ -212,20 +217,53 @@ export default function ScriptGenerationDrawer({ isOpen, onClose, selectedTask, 
           } else if (key.endsWith('_end')) {
             timeRanges[timeRangeKey].end = String(value);
           }
+        } else if (key.includes('_ranges') && Array.isArray(value)) {
+          // 处理时间区间范围数组
+          const baseKey = key.replace(/_ranges$/, '');
+          const timeRangeKey = baseKey;
+          
+          if (!timeRanges[timeRangeKey]) {
+            timeRanges[timeRangeKey] = {
+              label: filterConditionMap[timeRangeKey] || baseKey,
+              ranges: []
+            };
+          }
+          
+          timeRanges[timeRangeKey].ranges = value;
         } else {
-          // 非时间区间字段直接显示
+          // 非时间区间字段处理
           if (key === 'is_arrive') {
             const boolValue = value === '1' || value === 1 || value === true ? '是' : '否';
             formattedConditions.push(`${chineseKey}: ${boolValue}`);
+          } else if (Array.isArray(value)) {
+            // 处理数组类型的多选值
+            if (value.length > 0) {
+              formattedConditions.push(`${chineseKey}: ${value.join('、')}`);
+            }
           } else {
-            formattedConditions.push(`${chineseKey}: ${String(value)}`);
+            // 处理多个值的情况（用逗号分隔）
+            if (typeof value === 'string' && value.includes(',')) {
+              const values = value.split(',').map(v => v.trim()).filter(v => v);
+              if (values.length > 0) {
+                formattedConditions.push(`${chineseKey}: ${values.join('、')}`);
+              }
+            } else {
+              formattedConditions.push(`${chineseKey}: ${String(value)}`);
+            }
           }
         }
       });
       
       // 处理时间区间显示
       Object.values(timeRanges).forEach(range => {
-        if (range.start || range.end) {
+        if (range.ranges && range.ranges.length > 0) {
+          // 显示时间区间范围数组
+          const rangeTexts = range.ranges.map(r => {
+            const [start, end] = r.split('_');
+            return `${start} 至 ${end}`;
+          });
+          formattedConditions.push(`${range.label}: ${rangeTexts.join('、')}`);
+        } else if (range.start || range.end) {
           if (range.start && range.end) {
             formattedConditions.push(`${range.label}: ${range.start} 至 ${range.end}`);
           } else if (range.start) {

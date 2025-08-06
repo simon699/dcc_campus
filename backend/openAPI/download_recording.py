@@ -39,7 +39,7 @@ class Sample:
     def main(
         args: List[str],
         task_id: str,
-    ) -> None:
+    ) -> str:
         client = Sample.create_client()
         download_recording_request = outbound_bot_20191226_models.DownloadRecordingRequest(
             task_id=task_id,
@@ -49,14 +49,21 @@ class Sample:
         try:
             # 复制代码运行请自行打印 API 的返回值
             response = client.download_recording_with_options(download_recording_request, runtime)
-            return response.body.download_params.signature_url
+            if response.body and response.body.download_params and response.body.download_params.signature_url:
+                return response.body.download_params.signature_url
+            else:
+                print(f"任务 {task_id} 未获取到录音URL")
+                return None
         except Exception as error:
             # 此处仅做打印展示，请谨慎对待异常处理，在工程项目中切勿直接忽略异常。
             # 错误 message
-            print(error.message)
+            print(f"下载录音失败 - 任务ID: {task_id}, 错误: {error.message}")
             # 诊断地址
-            print(error.data.get("Recommend"))
-            UtilClient.assert_as_string(error.message)
+            if hasattr(error, 'data') and error.data:
+                print(f"Recommend: {error.data.get('Recommend', 'No recommendation')}")
+            else:
+                print("No diagnostic information available")
+            return None
 
     @staticmethod
     async def main_async(

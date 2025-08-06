@@ -59,7 +59,7 @@ class SceneResponse(BaseModel):
     scene_detail: str
     scene_status: int
     scene_type: int
-    scene_create_user_id: str
+    scene_create_user_id: Optional[str] = None
     scene_create_user_name: str
     scene_create_org_id: str
     scene_create_time: str
@@ -271,6 +271,11 @@ async def get_scenes(token: dict = Depends(verify_access_token)):
             scene_data = dict(scene)
             
             # 确保必需字段不为None
+            if scene_data.get("scene_create_user_id") is None:
+                if scene_data.get("scene_type") == 1:
+                    scene_data["scene_create_user_id"] = "official"
+                else:
+                    scene_data["scene_create_user_id"] = "unknown"
             if scene_data.get("scene_create_user_name") is None:
                 if scene_data.get("scene_type") == 1:
                     scene_data["scene_create_user_name"] = "官方"
