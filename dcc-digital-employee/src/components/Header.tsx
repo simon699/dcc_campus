@@ -2,27 +2,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '../contexts/AuthContext';
 import UnbindConfirmModal from './UnbindConfirmModal';
+import { API_BASE_URL } from '../config/environment';
 
 export default function Header() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const { user, logout } = useAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [showUnbindModal, setShowUnbindModal] = useState(false);
 
-  useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if (userStr) {
-      setUser(JSON.parse(userStr));
-    }
-  }, []);
+  // 移除useEffect，因为现在使用AuthContext管理用户状态
 
   const handleLogout = () => {
-    localStorage.removeItem('user');
-    localStorage.removeItem('access_token');
-    document.cookie = 'user=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-    document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-    router.push('/login');
+    logout();
   };
 
   const handleUnbind = () => {
@@ -33,7 +26,7 @@ export default function Header() {
   const handleUnbindConfirm = async () => {
     try {
       const accessToken = localStorage.getItem('access_token');
-      const response = await fetch('http://localhost:8000/api/dcc/disassociate', {
+      const response = await fetch(`${API_BASE_URL}/dcc/disassociate`, {
         method: 'DELETE',
         headers: {
           'access-token': accessToken || '',
@@ -50,10 +43,11 @@ export default function Header() {
         // 更新本地存储的用户信息
         const userStr = localStorage.getItem('user');
         if (userStr) {
-          const user = JSON.parse(userStr);
-          user.dcc_user = null;
-          localStorage.setItem('user', JSON.stringify(user));
-          setUser(user);
+          const userData = JSON.parse(userStr);
+          userData.dcc_user = null;
+          localStorage.setItem('user', JSON.stringify(userData));
+          // 注意：这里不能直接设置用户状态，因为现在由AuthContext管理
+          // 需要刷新页面来更新状态
         }
 
         // 设置需要重新绑定的标记
@@ -118,7 +112,7 @@ export default function Header() {
               {isDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-56 rounded-lg shadow-lg py-1 backdrop-blur-xl bg-white/80 border border-white/30">
                   {/* DCC账号信息 */}
-                  {user?.dcc_user && (
+                  {(user as any)?.dcc_user && (
                     <div className="px-4 py-3 border-b border-gray-200">
                       <div className="flex items-center space-x-2 mb-2">
                         <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -128,7 +122,7 @@ export default function Header() {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium text-blue-600 truncate">
-                          {user.dcc_user}
+                          {(user as any).dcc_user}
                         </span>
                         <button
                           onClick={handleUnbind}
@@ -167,7 +161,7 @@ export default function Header() {
         isOpen={showUnbindModal}
         onClose={() => setShowUnbindModal(false)}
         onConfirm={handleUnbindConfirm}
-        dccUser={user?.dcc_user || ''}
+        dccUser={(user as any)?.dcc_user || ''}
       />
     </header>
   );

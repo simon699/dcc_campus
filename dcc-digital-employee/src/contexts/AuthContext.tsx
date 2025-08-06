@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getActivityMonitor } from '../utils/activityMonitor';
 import { checkTokenValidity } from '../services/api';
 import { handleTokenExpired } from '../utils/tokenUtils';
+import { API_BASE_URL } from '../config/environment';
 
 interface User {
   username: string;
@@ -69,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     try {
       // 调用API进行身份验证
-      const response = await fetch('http://localhost:8000/api/login', {
+      const response = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

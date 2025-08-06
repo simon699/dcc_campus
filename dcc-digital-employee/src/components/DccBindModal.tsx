@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../config/environment';
 
 interface DccBindModalProps {
   isOpen: boolean;
@@ -79,7 +80,7 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
 
     try {
       // 首先调用验证接口
-      const verifyResponse = await fetch('http://localhost:8000/api/dcc/user/verify', {
+      const verifyResponse = await fetch(`${API_BASE_URL}/dcc/user/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -103,7 +104,7 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
 
       // 验证成功后，调用关联接口
       const accessToken = localStorage.getItem('access_token');
-      const associateResponse = await fetch('http://localhost:8000/api/dcc/associate', {
+      const associateResponse = await fetch(`${API_BASE_URL}/dcc/associate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
