@@ -1,1 +1,0 @@
-self.__NEXT_FONT_MANIFEST='{"pages":{},"app":{"/Users/wedo/Documents/product/DCC数字员工/V1.0/dcc-digital-employee/src/app/layout":["static/media/e4af272ccee01ff0-s.p.woff2"]},"appUsingSizeAdjust":true,"pagesUsingSizeAdjust":false}';

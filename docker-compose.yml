@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"    # 暴露后端端口
+    restart: always    # 崩溃自动重启
+
+  frontend:
+    build: ./dcc-digital-employee
+    ports:
+      - "80:3000"      # 前端映射到80端口
+    depends_on:
+      - backend        # 确保后端先启动
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000  # 关键：通过服务名通信
