@@ -1,4 +1,4 @@
-name: Deploy to Alibaba Cloud ACR
+name: Deploy to Alibaba Cloud ACR (Updated)
 
 on:
   push:
