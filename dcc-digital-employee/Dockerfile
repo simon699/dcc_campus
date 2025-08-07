@@ -9,7 +9,7 @@ WORKDIR /app
 
 # 复制package.json和package-lock.json
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 # 构建阶段
 FROM base AS builder
@@ -19,8 +19,10 @@ COPY . .
 
 # 设置环境变量
 ENV NEXT_TELEMETRY_DISABLED 1
+ENV NODE_ENV production
 
-# 构建应用
+# 显示调试信息
+RUN echo "开始构建应用..."
 RUN npm run build
 
 # 生产阶段
