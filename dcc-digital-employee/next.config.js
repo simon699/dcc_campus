@@ -2,6 +2,8 @@
 const nextConfig = {
   // 优化字体加载
   optimizeFonts: true,
+  // 启用输出独立模式，用于Docker部署
+  output: 'standalone',
   // 添加字体预加载配置
   async headers() {
     return [

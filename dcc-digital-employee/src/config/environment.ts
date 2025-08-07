@@ -19,7 +19,7 @@ const getEnvironmentConfig = (): EnvironmentConfig => {
   // 生产环境配置
   if (nodeEnv === 'production') {
     return {
-      API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'https://your-production-domain.com/api',
+      API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api',
       NODE_ENV: 'production'
     };
   }

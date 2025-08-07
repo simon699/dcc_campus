@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # MySQL数据库服务
+  mysql:
+    image: mysql:8.0
+    container_name: dcc-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-dcc123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-dcc_employee_db}
+      MYSQL_USER: ${MYSQL_USER:-dcc_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-dcc123456}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/database/:/docker-entrypoint-initdb.d/
+    networks:
+      - dcc-network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # 后端API服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dcc-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${MYSQL_USER:-dcc_user}
+      - DB_PASSWORD=${MYSQL_PASSWORD:-dcc123456}
+      - DB_NAME=${MYSQL_DATABASE:-dcc_employee_db}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dcc-jwt-secret-key-2024}
+      - ALIBABA_CLOUD_ACCESS_KEY_ID=${ALIBABA_CLOUD_ACCESS_KEY_ID}
+      - ALIBABA_CLOUD_ACCESS_KEY_SECRET=${ALIBABA_CLOUD_ACCESS_KEY_SECRET}
+      - INSTANCE_ID=${INSTANCE_ID}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - ALIBAILIAN_APP_ID=${ALIBAILIAN_APP_ID}
+      - SCENE_ID_API_URL=${SCENE_ID_API_URL}
+      - EXTERNAL_API_TOKEN=${EXTERNAL_API_TOKEN}
+    depends_on:
+      - mysql
+    networks:
+      - dcc-network
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+
+  # 前端应用服务
+  frontend:
+    build:
+      context: ./dcc-digital-employee
+      dockerfile: Dockerfile
+    container_name: dcc-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_BASE_URL=https://campus.kongbaijiyi.com/api
+    depends_on:
+      - backend
+    networks:
+      - dcc-network
+
+  # Nginx反向代理服务
+  nginx:
+    image: nginx:alpine
+    container_name: dcc-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - dcc-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  dcc-network:
+    driver: bridge
