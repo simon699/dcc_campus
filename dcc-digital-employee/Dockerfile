@@ -20,6 +20,7 @@ COPY . .
 # 设置环境变量
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NODE_ENV production
+ENV NEXT_LINT=false
 
 # 显示调试信息
 RUN echo "开始构建应用..."
