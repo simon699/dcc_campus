@@ -35,9 +35,6 @@ ENV NEXT_TELEMETRY_DISABLED 1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# 复制构建产物
-COPY --from=builder /app/public ./public
-
 # 设置正确的权限
 RUN mkdir .next
 RUN chown nextjs:nodejs .next
