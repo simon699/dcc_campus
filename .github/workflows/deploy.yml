@@ -27,6 +27,8 @@ jobs:
         registry: ${{ env.REGISTRY }}
         username: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
         password: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_SECRET }}
+      env:
+        DOCKER_BUILDKIT: 1
 
     - name: Build and push Frontend image
       uses: docker/build-push-action@v5
