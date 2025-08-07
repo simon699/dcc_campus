@@ -1,5 +1,107 @@
 # 阿里云ACR部署指南
 
+## 网络问题解决
+
+### 常见网络错误
+1. **Docker Hub拉取超时**
+   ```
+   ERROR: failed to build: failed to solve: DeadlineExceeded: failed to fetch oauth token
+   ```
+   
+2. **ACR推送超时**
+   ```
+   failed to do request: Head "https://crpi-6kf9zd5057bjgono.cn-shanghai.personal.cr.aliyuncs.com/v2/...": net/http: TLS handshake timeout
+   ```
+
+### 解决方案
+
+#### 方案一：使用ACR控制台自动构建（推荐）
+
+**优势**：
+- 避免本地网络问题
+- 自动构建和部署
+- 更好的网络稳定性
+
+**步骤**：
+
+1. **登录阿里云ACR控制台**
+   - 进入容器镜像服务
+   - 选择您的命名空间和镜像仓库
+
+2. **配置自动构建规则**
+   ```
+   代码仓库: https://github.com/simon699/dcc_campus.git
+   分支: main
+   构建目录: /
+   Dockerfile路径: Dockerfile
+   镜像标签: V1.0
+   ```
+
+3. **设置环境变量**
+   ```bash
+   # 必需环境变量
+   DB_PASSWORD=your_database_password
+   JWT_SECRET_KEY=your_jwt_secret_key
+   ALIBABA_CLOUD_ACCESS_KEY_ID=your_access_key_id
+   ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_access_key_secret
+   INSTANCE_ID=your_instance_id
+   DASHSCOPE_API_KEY=your_dashscope_api_key
+   ALIBAILIAN_APP_ID=your_alibailian_app_id
+   EXTERNAL_API_TOKEN=your_external_api_token
+   
+   # 可选环境变量
+   ENVIRONMENT=production
+   DEBUG=False
+   DB_HOST=your_database_host
+   DB_PORT=3306
+   DB_USER=dcc_user
+   DB_NAME=dcc_employee_db
+   JWT_EXPIRE_HOURS=24
+   SCENE_ID_API_URL=https://your-api.com/get-scene-id
+   API_TIMEOUT=30
+   ```
+
+4. **触发构建**
+   - 在ACR控制台点击"立即构建"
+   - 或配置Webhook自动触发
+
+#### 方案二：优化本地网络配置
+
+如果必须使用本地构建，可以尝试：
+
+1. **配置Docker镜像加速**
+   ```bash
+   # 创建或编辑 /etc/docker/daemon.json
+   {
+     "registry-mirrors": [
+       "https://registry.cn-hangzhou.aliyuncs.com",
+       "https://docker.mirrors.ustc.edu.cn",
+       "https://hub-mirror.c.163.com"
+     ]
+   }
+   ```
+
+2. **重启Docker服务**
+   ```bash
+   sudo systemctl restart docker
+   ```
+
+3. **使用VPN或代理**
+   - 配置网络代理
+   - 使用阿里云ECS作为构建环境
+
+#### 方案三：分阶段推送
+
+如果镜像较大，可以分阶段推送：
+
+```bash
+# 1. 先推送到本地仓库
+docker tag crpi-6kf9zd5057bjgono.cn-shanghai.personal.cr.aliyuncs.com/weido_dcc/dcc_campus:V1.0 localhost:5000/dcc_campus:V1.0
+
+# 2. 使用阿里云ECS作为中转
+# 在ECS上拉取本地镜像，然后推送到ACR
+```
+
 ## 问题解决
 
 ### 原始错误
@@ -16,7 +118,7 @@ error: failed to solve: failed to read dockerfile: open /tmp/buildkit-mount29681
 
 #### 2. 部署配置
 
-##### 方法一：使用ACR控制台部署
+##### 方法一：使用ACR控制台部署（推荐）
 
 1. **登录阿里云ACR控制台**
    - 进入容器镜像服务
@@ -126,6 +228,10 @@ error: failed to solve: failed to read dockerfile: open /tmp/buildkit-mount29681
 - **问题**: 无法访问应用端口
 - **解决**: 检查ECS安全组配置
 
+### 5. 网络超时问题
+- **问题**: Docker Hub拉取或ACR推送超时
+- **解决**: 使用ACR控制台自动构建或配置镜像加速
+
 ## 部署检查清单
 
 - [ ] 项目根目录包含Dockerfile
@@ -180,4 +286,4 @@ docker exec -i dcc_mysql mysql -u dcc_user -p dcc_employee_db < backup.sql
 
 ---
 
-**注意**: 首次部署时，请确保所有必需的环境变量都已正确配置，并在测试环境中验证后再部署到生产环境。
+**注意**: 首次部署时，请确保所有必需的环境变量都已正确配置，并在测试环境中验证后再部署到生产环境。**推荐使用ACR控制台自动构建来避免网络问题**。

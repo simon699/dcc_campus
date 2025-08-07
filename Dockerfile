@@ -1,8 +1,8 @@
 # DCC数字员工系统 - 主Dockerfile
 # 用于阿里云ACR部署
 
-# 使用多阶段构建 - 使用官方镜像源
-FROM aliyunfc/runtime-python3.9:latest AS backend-builder
+# 使用多阶段构建 - 使用官方Python镜像
+FROM python:3.9-slim AS backend-builder
 
 WORKDIR /build/backend
 
@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir --retries 3 --timeout 120 -r requirements.txt
 
 # 后端生产镜像
-FROM aliyunfc/runtime-python3.9:latest AS backend
+FROM python:3.9-slim AS backend
 
 WORKDIR /app
 
@@ -45,9 +45,9 @@ USER app
 # 暴露端口
 EXPOSE 8000
 
-# 健康检查
+# 健康检查 - 使用Python内置的HTTP请求
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 # 启动命令
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
