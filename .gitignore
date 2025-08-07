@@ -1,0 +1,11 @@
+# Node.js
+node_modules/
+
+# Python
+__pycache__/
+venv/
+*.pyc
+
+# Temporary files
+*.tmp
+auth_context.tmp
