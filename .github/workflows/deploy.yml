@@ -8,7 +8,7 @@ on:
 
 env:
   REGISTRY: registry.cn-hangzhou.aliyuncs.com
-  IMAGE_NAME: ${{ github.repository }}
+  NAMESPACE: simon699
 
 jobs:
   build-and-push:
@@ -34,7 +34,7 @@ jobs:
         context: ./dcc-digital-employee
         file: ./dcc-digital-employee/Dockerfile
         push: true
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:${{ github.sha }}
+        tags: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/frontend:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
@@ -44,7 +44,7 @@ jobs:
         context: ./backend
         file: ./backend/Dockerfile
         push: true
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ github.sha }}
+        tags: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
@@ -52,8 +52,8 @@ jobs:
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       run: |
         echo "Deployment completed successfully"
-        echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:${{ github.sha }}"
-        echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ github.sha }}"
+        echo "Frontend image: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/frontend:${{ github.sha }}"
+        echo "Backend image: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/backend:${{ github.sha }}"
 
   test:
     runs-on: ubuntu-latest
