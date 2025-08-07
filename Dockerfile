@@ -2,7 +2,7 @@
 # 用于阿里云ACR部署
 
 # 使用多阶段构建 - 使用官方镜像源
-FROM python:3.9-slim AS backend-builder
+FROM aliyunfc/runtime-python3.9:latest AS backend-builder
 
 WORKDIR /build/backend
 
@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir --retries 3 --timeout 120 -r requirements.txt
 
 # 后端生产镜像
-FROM python:3.9-slim AS backend
+FROM aliyunfc/runtime-python3.9:latest AS backend
 
 WORKDIR /app
 
