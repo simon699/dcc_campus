@@ -1,182 +1,194 @@
 # DCC数字员工系统
 
-## 项目简介
+## 📋 项目简介
 
-DCC数字员工系统是一个基于Docker的微服务架构应用，包含前端、后端和数据库服务。
+DCC数字员工系统是一个智能化的客户关系管理平台，集成了任务管理、外呼系统、话术生成和跟进管理等功能。
 
-## 项目结构
+## 🏗️ 系统架构
 
 ```
-V1.0/
-├── backend/                 # 后端服务
-│   ├── api/                # API接口
-│   ├── database/           # 数据库脚本
-│   ├── openAPI/           # 外部API集成
-│   ├── utils/             # 工具函数
-│   └── main.py            # 主程序
-├── dcc-digital-employee/   # 前端服务
-│   ├── src/               # 源代码
-│   ├── components/        # React组件
-│   └── package.json       # 依赖配置
-├── docker-compose.yml     # Docker编排配置
-├── Dockerfile             # 主Dockerfile
-├── configure_env.sh       # 环境配置脚本
-├── local-test.sh          # 本地测试脚本
-└── README.md              # 项目说明
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Nginx (80)    │───▶│  Next.js (3000) │    │  FastAPI (8000) │
+│   (反向代理)     │    │   (前端)        │    │   (后端)        │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                              │                        │
+                              └─────────┬──────────────┘
+                                        ▼
+                              ┌─────────────────┐
+                              │   MySQL         │
+                              │   (数据库)      │
+                              └─────────────────┘
 ```
 
-## 快速开始
+## 🚀 快速开始
 
-### 1. 环境配置
+### 环境要求
+- Python 3.8+
+- Node.js 16+
+- MySQL 8.0+
+- Nginx
 
+### 本地开发
 ```bash
-# 运行环境配置脚本
-./configure_env.sh
-```
+# 克隆项目
+git clone <repository-url>
+cd V1.0
 
-### 2. 本地测试
+# 后端开发
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-```bash
-# 运行本地测试
-./local-test.sh
-```
-
-### 3. 手动部署
-
-```bash
-# 构建并启动服务
-docker-compose up -d
-
-# 查看服务状态
-docker-compose ps
-
-# 查看日志
-docker-compose logs -f
-```
-
-## 开发环境设置
-
-### 前端开发
-```bash
+# 前端开发
 cd dcc-digital-employee
 npm install
 npm run dev
 ```
 
-### 后端开发
+### 生产部署
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或 venv\Scripts\activate  # Windows
-pip install -r requirements.txt
-python main.py
+# 使用部署脚本
+./deploy-simple.sh
+
+# 或手动部署
+# 1. 配置服务器环境
+# 2. 部署后端服务
+# 3. 部署前端服务
+# 4. 配置Nginx
 ```
 
-## 服务说明
+## 📁 项目结构
 
-### 后端服务 (Port: 8000)
-- 基于FastAPI的RESTful API
-- 支持JWT认证
-- 集成阿里云和阿里百炼服务
-- 健康检查端点: `/health`
-
-### 前端服务 (Port: 3000)
-- 基于Next.js的React应用
-- 现代化UI界面
-- 响应式设计
-
-### 数据库服务 (Port: 3306)
-- MySQL 8.0数据库
-- 自动初始化脚本
-- 数据持久化存储
-
-## 环境变量配置
-
-主要环境变量包括：
-
-```bash
-# 数据库配置
-DB_PASSWORD=your_database_password
-DB_NAME=dcc_employee_db
-
-# JWT配置
-JWT_SECRET_KEY=your_jwt_secret_key
-
-# 阿里云配置
-ALIBABA_CLOUD_ACCESS_KEY_ID=your_access_key_id
-ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_access_key_secret
-INSTANCE_ID=your_instance_id
-
-# 阿里百炼配置
-DASHSCOPE_API_KEY=your_dashscope_api_key
-ALIBAILIAN_APP_ID=your_alibailian_app_id
+```
+V1.0/
+├── backend/                    # 后端代码
+│   ├── api/                   # API接口
+│   │   ├── auth.py           # 认证相关
+│   │   ├── auto_call_api.py  # 外呼API
+│   │   ├── dcc_leads.py      # 线索管理
+│   │   └── ...
+│   ├── database/              # 数据库相关
+│   │   ├── db.py             # 数据库连接
+│   │   └── *.sql             # SQL脚本
+│   ├── main.py               # 主程序
+│   └── requirements.txt      # Python依赖
+├── dcc-digital-employee/      # 前端代码
+│   ├── src/
+│   │   ├── app/              # 页面组件
+│   │   ├── components/       # 通用组件
+│   │   ├── services/         # API服务
+│   │   └── config/           # 配置文件
+│   ├── package.json          # Node.js依赖
+│   └── next.config.js        # Next.js配置
+├── nginx.conf                # Nginx配置
+├── deploy-simple.sh          # 部署脚本
+├── restart-all.sh            # 重启脚本
+└── DEPLOYMENT-CLEAN.md       # 详细部署文档
 ```
 
-## 项目清理说明
+## 🌐 访问地址
 
-为了减小项目大小，以下文件已被清理并添加到 `.gitignore`：
+- **生产环境**: https://campus.kongbaijiyi.com
+- **开发环境**: http://localhost:3000
+- **API文档**: https://campus.kongbaijiyi.com/docs
 
-- `node_modules/` - 前端依赖包（可通过 `npm install` 重新安装）
-- `venv/` - Python虚拟环境（可通过 `python -m venv venv` 重新创建）
-- `__pycache__/` - Python缓存文件
-- `*.pyc` - Python编译文件
-- `*.tmp` - 临时文件
+## 🔧 核心功能
 
-## 部署说明
+### 🤖 智能Agent
+- **任务Agent**: 智能任务分配和管理
+- **话术生成Agent**: 个性化话术生成
+- **外呼Agent**: 智能外呼系统
+- **跟进Agent**: 客户跟进管理
 
-### 本地开发环境
-1. 运行 `./configure_env.sh` 配置环境变量
-2. 运行 `./local-test.sh` 启动本地测试
+### 📊 数据管理
+- **线索管理**: 客户线索录入和管理
+- **任务管理**: 外呼任务创建和监控
+- **跟进记录**: 客户跟进历史记录
+- **统计分析**: 数据统计和报表
 
-### 生产环境部署
-1. 配置生产环境变量
-2. 使用 `docker-compose up -d` 启动服务
-3. 配置反向代理和SSL证书
+### 🔐 安全认证
+- **用户认证**: JWT Token认证
+- **权限管理**: 基于角色的权限控制
+- **数据加密**: 敏感数据加密存储
 
-## 监控和维护
+## 📝 配置说明
 
-### 健康检查
+### 环境变量
+- 前端配置: `dcc-digital-employee/src/config/environment.ts`
+- 后端配置: `backend/config.py`
+
+### 数据库配置
+- 数据库名: `dcc_employee_db`
+- 用户名: `dcc_user`
+- 密码: `dcc123456`
+
+## 🔧 维护命令
+
+### 重启服务
 ```bash
-# 检查后端健康状态
-curl http://localhost:8000/health
+# 完整重启
+./restart-all.sh
 
-# 检查数据库连接
-docker-compose exec mysql mysqladmin ping -h localhost
+# 单独重启
+# 后端
+cd backend && pkill -f "uvicorn" && nohup uvicorn main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+
+# 前端
+cd dcc-digital-employee && pkill -f "next" && nohup npm start > frontend.log 2>&1 &
+
+# Nginx
+systemctl restart nginx
 ```
 
-### 日志查看
+### 查看日志
 ```bash
-# 查看所有服务日志
-docker-compose logs -f
+# 后端日志
+tail -f backend/backend.log
 
-# 查看特定服务日志
-docker-compose logs -f backend
+# 前端日志
+tail -f dcc-digital-employee/frontend.log
+
+# Nginx日志
+tail -f /var/log/nginx/access.log
 ```
 
-## 故障排除
+## 📊 监控和健康检查
+
+- **后端健康检查**: `GET /api/health`
+- **前端状态**: 访问首页检查
+- **服务监控**: 进程和端口状态检查
+
+## 🆘 故障排除
 
 ### 常见问题
+1. **服务无法访问**: 检查防火墙和端口配置
+2. **数据库连接失败**: 检查MySQL服务状态
+3. **前端显示异常**: 检查Node.js进程和日志
+4. **API调用失败**: 检查后端进程和日志
 
-1. **服务启动失败**
-   - 检查环境变量配置
-   - 查看服务日志: `docker-compose logs`
+### 调试步骤
+1. 检查服务进程状态
+2. 查看错误日志
+3. 验证网络连接
+4. 检查配置文件
 
-2. **数据库连接失败**
-   - 检查数据库服务状态
-   - 验证数据库配置参数
+## 📚 文档
 
-3. **前端无法访问后端**
-   - 检查网络配置
-   - 验证API地址配置
+- [部署文档](DEPLOYMENT-CLEAN.md) - 详细的部署和维护指南
+- [API文档](https://campus.kongbaijiyi.com/docs) - 在线API文档
 
-## 技术支持
+## 🤝 贡献
 
-如有问题，请查看：
-- 服务日志: `docker-compose logs`
-- 健康检查: `curl http://localhost:8000/health`
-- 环境配置: `./configure_env.sh`
+欢迎提交Issue和Pull Request来改进项目。
+
+## 📄 许可证
+
+本项目采用MIT许可证。
 
 ---
 
-**注意**: 首次部署时，请确保所有必需的环境变量都已正确配置。
+**最后更新**: 2025-08-08  
+**版本**: V1.0  
+**状态**: ✅ 生产环境运行中

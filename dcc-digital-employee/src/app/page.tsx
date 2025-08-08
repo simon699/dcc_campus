@@ -243,6 +243,16 @@ export default function Home() {
                   const followupInProgressStats = statsByType[3] || { count: 0, leads_count: 0 };
                   const followupCompletedStats = statsByType[4] || { count: 0, leads_count: 0 };
                   
+                  // 添加调试信息
+                  console.log('DEBUG - 跟进Agent状态判断:', {
+                    followupInProgressCount: followupInProgressStats.count,
+                    followupCompletedCount: followupCompletedStats.count,
+                    willBeWorking: followupInProgressStats.count > 0
+                  });
+                  
+                  const newStatus = followupInProgressStats.count > 0 ? 'working' : 'idle';
+                  console.log('DEBUG - 跟进Agent新状态:', newStatus);
+                  
                   return {
                     ...robot,
                     stats: {
@@ -250,8 +260,8 @@ export default function Home() {
                       completed: followupCompletedStats.count, // 跟进完成的任务数（task_type=4）
                       current: followupInProgressStats.count  // 跟进中的任务数（task_type=3）
                     },
-                    // 跟进Agent：如果有跟进中的任务或跟进完成的任务时显示为工作中
-                    status: (followupInProgressStats.count > 0 || followupCompletedStats.count > 0) ? 'working' : 'idle'
+                    // 跟进Agent：只有在跟进中的任务时才显示为工作中，跟进完成时显示为空闲
+                    status: newStatus
                   };
                 default:
                   return robot;
