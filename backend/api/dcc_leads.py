@@ -483,9 +483,10 @@ def _count_by_product(results: List[Dict]) -> List[LeadsCountItem]:
                 'leads_ids': []
             }
         
-        product_stats[product]['count'] += 1
+        # 只统计不重复的线索ID
         if leads_id not in product_stats[product]['leads_ids']:
             product_stats[product]['leads_ids'].append(leads_id)
+            product_stats[product]['count'] += 1
     
     return [
         LeadsCountItem(
@@ -510,9 +511,10 @@ def _count_by_type(results: List[Dict]) -> List[LeadsCountItem]:
                 'leads_ids': []
             }
         
-        type_stats[leads_type]['count'] += 1
+        # 只统计不重复的线索ID
         if leads_id not in type_stats[leads_type]['leads_ids']:
             type_stats[leads_type]['leads_ids'].append(leads_id)
+            type_stats[leads_type]['count'] += 1
     
     return [
         LeadsCountItem(
@@ -539,9 +541,10 @@ def _count_by_arrive(results: List[Dict]) -> List[LeadsCountItem]:
                 'leads_ids': []
             }
         
-        arrive_stats[arrive_status]['count'] += 1
+        # 只统计不重复的线索ID
         if leads_id not in arrive_stats[arrive_status]['leads_ids']:
             arrive_stats[arrive_status]['leads_ids'].append(leads_id)
+            arrive_stats[arrive_status]['count'] += 1
     
     return [
         LeadsCountItem(

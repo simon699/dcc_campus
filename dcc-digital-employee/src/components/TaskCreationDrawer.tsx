@@ -6,12 +6,18 @@ import 'react-datepicker/dist/react-datepicker.css';
 import '../app/datepicker-custom.css';
 import { leadsAPI, tasksAPI } from '../services/api';
 
+interface FilterOption {
+  value: string;
+  label: string;
+  count?: number;
+  fullCount?: number;
+}
 interface FilterCondition {
   id: string;
   type: 'car_model' | 'customer_level' | 'visit_status' | 'last_follow_time' | 'first_follow_time' | 'next_follow_time';
   label: string;
   value: string;
-  options: { value: string; label: string; count?: number }[];
+  options: FilterOption[];
   hasCustom?: boolean;
 }
 
@@ -139,12 +145,14 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
                     ? productResult.data.map((item: any) => ({
                         value: item.category,
                         label: item.category,
-                        count: item.count
+                        count: item.count,
+                        fullCount: item.count
                       }))
                     : productResult.data.by_product?.map((item: any) => ({
                         value: item.category,
                         label: item.category,
-                        count: item.count
+                        count: item.count,
+                        fullCount: item.count
                       })) || [];
                   
                   return {
@@ -168,12 +176,14 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
                     ? typeResult.data.map((item: any) => ({
                         value: item.category,
                         label: item.category,
-                        count: item.count
+                        count: item.count,
+                        fullCount: item.count
                       }))
                     : typeResult.data.by_type?.map((item: any) => ({
                         value: item.category,
                         label: item.category,
-                        count: item.count
+                        count: item.count,
+                        fullCount: item.count
                       })) || [];
                   
                   return {
@@ -211,7 +221,8 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
                         return {
                           value: value,
                           label: label,
-                          count: item.count
+                          count: item.count,
+                          fullCount: item.count
                         };
                       })
                     : arriveResult.data.by_arrive?.map((item: any) => {
@@ -231,7 +242,8 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
                         return {
                           value: value,
                           label: label,
-                          count: item.count
+                          count: item.count,
+                          fullCount: item.count
                         };
                       }) || [];
                   
@@ -658,7 +670,7 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
             ...condition,
             options: condition.options.map(option => ({
               ...option,
-              count: 0
+              count: option.fullCount ?? 0
             }))
           };
         }
@@ -691,7 +703,7 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
             ...condition,
             options: condition.options.map(option => ({
               ...option,
-              count: 0
+              count: option.fullCount ?? 0
             }))
           };
         }
