@@ -6,6 +6,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 import '../app/datepicker-custom.css';
 import { tasksAPI } from '../services/api';
 import SyncDCCModal from './SyncDCCModal';
+import * as XLSX from 'xlsx';
 
 interface FollowupRecord {
   id: string;
@@ -422,6 +423,27 @@ export default function FollowupModal({
     );
   };
 
+  // 导出Excel方法
+  const handleExportExcel = () => {
+    const selected = getSelectedRecords();
+    if (selected.length === 0) {
+      alert('请至少选择一条记录进行导出');
+      return;
+    }
+    // 组装导出数据
+    const exportData = selected.map(record => ({
+      姓名: record.leadName,
+      手机号: record.phone,
+      有无意向: getInterestStatusText(record.isInterested ?? null),
+      下次跟进时间: record.nextFollowTime ? formatNextFollowTime(record.nextFollowTime) : '-',
+      备注: record.remark || '-',
+    }));
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '跟进记录');
+    XLSX.writeFile(wb, '跟进记录.xlsx');
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -593,19 +615,32 @@ export default function FollowupModal({
                 {/* 第一行：标题和操作按钮 */}
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-white">执行记录</h3>
-                  
-                  {/* 同步DCC按钮 */}
-                  <button
-                    onClick={() => setShowSyncModal(true)}
-                    disabled={selectedRecords.size === 0}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      selectedRecords.size > 0
-                        ? 'bg-blue-500 hover:bg-blue-600 text-white'
-                        : 'bg-white/10 text-gray-400 cursor-not-allowed'
-                    }`}
-                  >
-                    同步DCC ({selectedRecords.size})
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    {/* 导出Excel按钮 */}
+                    <button
+                      onClick={handleExportExcel}
+                      disabled={selectedRecords.size === 0}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedRecords.size > 0
+                          ? 'bg-green-500 hover:bg-green-600 text-white'
+                          : 'bg-white/10 text-gray-400 cursor-not-allowed'
+                      }`}
+                    >
+                      导出Excel
+                    </button>
+                    {/* 同步DCC按钮 */}
+                    <button
+                      onClick={() => setShowSyncModal(true)}
+                      disabled={selectedRecords.size === 0}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedRecords.size > 0
+                          ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                          : 'bg-white/10 text-gray-400 cursor-not-allowed'
+                      }`}
+                    >
+                      同步DCC ({selectedRecords.size})
+                    </button>
+                  </div>
                 </div>
                 
                 {/* 第二行：筛选器 */}
