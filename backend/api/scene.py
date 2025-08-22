@@ -235,18 +235,18 @@ async def create_scene(request: CreateSceneRequest, token: dict = Depends(verify
 @scene_router.get("/scenes",
                  response_model=SceneListResponse,
                  summary="查询自动外呼场景",
-                 description="根据token查询对应组织中创建的上线场景和官方上线场景")
+                 description="根据token查询对应组织中创建的上线场景（包括官方场景）")
 async def get_scenes(token: dict = Depends(verify_access_token)):
     """查询自动外呼场景"""
     try:
         # 获取用户信息
-        org_id = token.get("org_id")
+        org_id = token.get("organization_id")
         
-        # 查询场景：用户组织创建的上线场景 + 官方上线场景
+        # 查询场景：用户组织创建的上线场景 + 官方上线场景（也按组织过滤）
         scene_sql = """
         SELECT * FROM auto_call_scene 
         WHERE scene_status = 1 
-        AND (scene_create_org_id = %s OR scene_type = 1)
+        AND scene_create_org_id = %s
         ORDER BY scene_create_time DESC
         """
         

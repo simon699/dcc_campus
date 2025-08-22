@@ -27,7 +27,7 @@ nohup npm start > frontend.log 2>&1 &
 echo "✅ 前端服务已启动"
 
 echo "4. 重启Nginx..."
-systemctl restart nginx
+systemctl restart nginx 
 echo "✅ Nginx已重启"
 
 echo "5. 等待服务启动..."
