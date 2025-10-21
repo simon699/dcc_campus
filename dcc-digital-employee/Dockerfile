@@ -4,8 +4,13 @@ FROM node:18-alpine AS base
 # 安装依赖阶段
 FROM base AS deps
 # 检查https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine
+# 配置阿里云镜像源加速
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
+
+# 配置npm使用国内镜像源
+RUN npm config set registry https://registry.npmmirror.com
 
 # 复制package.json和package-lock.json
 COPY package*.json ./

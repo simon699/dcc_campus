@@ -1,0 +1,118 @@
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: dcc-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: dcc_employee_db
+      MYSQL_USER: dcc_user
+      MYSQL_PASSWORD: dcc123456
+      TZ: Asia/Shanghai
+    # 注释掉端口映射，避免与系统MySQL冲突
+    # MySQL仅供Docker容器内部访问，不暴露到主机
+    # ports:
+    #   - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/database:/docker-entrypoint-initdb.d:ro
+    networks:
+      - dcc-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dcc-backend
+    restart: always
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: dcc_user
+      DB_PASSWORD: dcc123456
+      DB_NAME: dcc_employee_db
+      JWT_SECRET_KEY: dcc-jwt-secret-key-2024
+      JWT_EXPIRE_HOURS: 24
+      ENVIRONMENT: production
+      DEBUG: "False"
+      ALIBABA_CLOUD_ACCESS_KEY_ID: ${ALIBABA_CLOUD_ACCESS_KEY_ID:-}
+      ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${ALIBABA_CLOUD_ACCESS_KEY_SECRET:-}
+      INSTANCE_ID: ${INSTANCE_ID:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      ALIBAILIAN_APP_ID: ${ALIBAILIAN_APP_ID:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - dcc-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./dcc-digital-employee
+      dockerfile: Dockerfile
+    container_name: dcc-frontend
+    restart: always
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: http://localhost/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - dcc-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Nginx反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: dcc-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-docker.conf:/etc/nginx/nginx.conf:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - dcc-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  dcc-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
+  nginx_logs:
+    driver: local
+
