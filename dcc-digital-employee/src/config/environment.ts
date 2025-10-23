@@ -8,10 +8,15 @@ interface EnvironmentConfig {
 const getEnvironmentConfig = (): EnvironmentConfig => {
   const nodeEnv = process.env.NODE_ENV || 'development';
   
+  // 检查是否在Docker环境中运行
+  const isDocker = process.env.DOCKER_ENV === 'true' || 
+                   process.env.NEXT_PUBLIC_API_BASE_URL?.includes('localhost') ||
+                   typeof window !== 'undefined' && window.location.hostname === 'localhost';
+  
   // 开发环境配置
   if (nodeEnv === 'development') {
     return {
-      API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://campus.kongbaijiyi.com/api',
+      API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || (isDocker ? 'http://localhost/api' : 'http://campus.kongbaijiyi.com/api'),
       NODE_ENV: 'development'
     };
   }
@@ -19,7 +24,7 @@ const getEnvironmentConfig = (): EnvironmentConfig => {
   // 生产环境配置
   if (nodeEnv === 'production') {
     return {
-      API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://campus.kongbaijiyi.com/api',
+      API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || (isDocker ? 'http://localhost/api' : 'http://campus.kongbaijiyi.com/api'),
       NODE_ENV: 'production'
     };
   }
@@ -27,14 +32,14 @@ const getEnvironmentConfig = (): EnvironmentConfig => {
   // 测试环境配置
   if (nodeEnv === 'test') {
     return {
-      API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://campus.kongbaijiyi.com/api',
+      API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || (isDocker ? 'http://localhost/api' : 'http://campus.kongbaijiyi.com/api'),
       NODE_ENV: 'test'
     };
   }
   
   // 默认配置
   return {
-    API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://campus.kongbaijiyi.com/api',
+    API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || (isDocker ? 'http://localhost/api' : 'http://campus.kongbaijiyi.com/api'),
     NODE_ENV: nodeEnv
   };
 };

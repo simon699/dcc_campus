@@ -1,5 +1,8 @@
+# 多项目部署配置示例
+# 使用方式：docker-compose -f docker-compose-multi-project.yml up -d
+
 services:
-  # MySQL数据库
+  # MySQL数据库 - 使用自定义端口避免冲突
   mysql:
     image: mysql:8.0
     container_name: dcc-mysql
@@ -10,10 +13,9 @@ services:
       MYSQL_USER: dcc_user
       MYSQL_PASSWORD: dcc123456
       TZ: Asia/Shanghai
-    # 注释掉端口映射，避免与系统MySQL冲突
-    # MySQL仅供Docker容器内部访问，不暴露到主机
-    # ports:
-    #   - "3306:3306"
+    # 使用自定义端口映射，避免与系统MySQL冲突
+    ports:
+      - "3307:3306"  # 映射到3307端口，避免与系统3306冲突
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/database:/docker-entrypoint-initdb.d:ro
@@ -25,7 +27,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # 后端服务
+  # 后端服务 - 使用自定义端口
   backend:
     build:
       context: ./backend
@@ -48,7 +50,7 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       ALIBAILIAN_APP_ID: ${ALIBAILIAN_APP_ID:-}
     ports:
-      - "8000:8000"
+      - "8001:8000"  # 使用8001端口，避免与其他项目冲突
     depends_on:
       mysql:
         condition: service_healthy
@@ -61,7 +63,7 @@ services:
       retries: 3
       start_period: 40s
 
-  # 前端服务
+  # 前端服务 - 使用自定义端口
   frontend:
     build:
       context: ./dcc-digital-employee
@@ -73,7 +75,7 @@ services:
       DOCKER_ENV: "true"
       NEXT_PUBLIC_API_BASE_URL: http://localhost/api
     ports:
-      - "3000:3000"
+      - "3001:3000"  # 使用3001端口，避免与其他项目冲突
     depends_on:
       - backend
     networks:
@@ -85,16 +87,16 @@ services:
       retries: 3
       start_period: 40s
 
-  # Nginx反向代理
+  # Nginx反向代理 - 使用自定义端口
   nginx:
     image: nginx:alpine
     container_name: dcc-nginx
     restart: always
     ports:
-      - "80:80"
-      - "443:443"
+      - "8080:80"    # 使用8080端口，避免与系统80端口冲突
+      - "8443:443"   # 使用8443端口，避免与系统443端口冲突
     volumes:
-      - ./nginx-docker.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-multi-project.conf:/etc/nginx/nginx.conf:ro
       - nginx_logs:/var/log/nginx
     depends_on:
       - frontend
@@ -110,10 +112,12 @@ services:
 networks:
   dcc-network:
     driver: bridge
+    name: dcc-network  # 指定网络名称，避免与其他项目冲突
 
 volumes:
   mysql_data:
     driver: local
+    name: dcc-mysql-data  # 指定卷名称，避免与其他项目冲突
   nginx_logs:
     driver: local
-
+    name: dcc-nginx-logs

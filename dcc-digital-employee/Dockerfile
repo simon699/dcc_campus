@@ -6,7 +6,10 @@ FROM base AS deps
 # 检查https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine
 # 配置阿里云镜像源加速
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache libc6-compat
+# 更新包索引并安装必要的依赖
+RUN apk update && apk add --no-cache \
+    dumb-init \
+    libc6-compat
 WORKDIR /app
 
 # 配置npm使用国内镜像源
@@ -35,6 +38,9 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
+# 安装dumb-init
+RUN apk add --no-cache dumb-init
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -57,4 +63,5 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # 启动应用
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "server.js"]
