@@ -163,3 +163,7 @@ temp/
 # Local configuration files
 config.local.js
 config.local.json
+
+# 敏感配置文件（包含实际密钥）
+env.production.local
+*.local
