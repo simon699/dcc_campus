@@ -19,6 +19,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/database:/docker-entrypoint-initdb.d:ro
+    command: --default-authentication-plugin=mysql_native_password
     networks:
       - dcc-network
     healthcheck:
