@@ -139,7 +139,7 @@ print_info "MySQL服务信息："
 echo "  容器名称: dcc-mysql"
 echo "  数据库: dcc_employee_db"
 echo "  用户名: dcc_user"
-echo "  密码: ,Dcc123456"
+echo "  密码: ,,Dcc123456"
 echo "  端口: 3306 (容器内部)"
 
 # 询问是否启动所有服务

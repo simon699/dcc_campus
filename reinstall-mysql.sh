@@ -3,7 +3,7 @@
 # MySQL重新安装脚本
 # 服务器: 47.103.27.235
 # 用户名: dcc_user
-# 密码: ,Dcc123456
+# 密码: ,,Dcc123456
 
 set -e  # 遇到错误立即退出
 
@@ -214,7 +214,7 @@ print_info "MySQL服务信息："
 echo "  容器名称: dcc-mysql"
 echo "  数据库: dcc_employee_db"
 echo "  用户名: dcc_user"
-echo "  密码: ,Dcc123456"
+echo "  密码: ,,Dcc123456"
 echo "  端口: 3306 (容器内部)"
 if docker ps --format "table {{.Names}}\t{{.Ports}}" | grep dcc-mysql | grep -q ":3307"; then
     echo "  外部端口: 3307"
