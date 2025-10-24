@@ -92,7 +92,7 @@ services:
       MYSQL_ROOT_PASSWORD: root123456
       MYSQL_DATABASE: dcc_employee_db
       MYSQL_USER: dcc_user
-      MYSQL_PASSWORD: ,Dcc123456
+      MYSQL_PASSWORD: ",Dcc123456"
       TZ: Asia/Shanghai
     ports:
       - "3307:3306"
@@ -111,7 +111,7 @@ services:
       DB_HOST: mysql
       DB_PORT: 3306
       DB_USER: dcc_user
-      DB_PASSWORD: ,Dcc123456
+      DB_PASSWORD: ",Dcc123456"
       DB_NAME: dcc_employee_db
       JWT_SECRET_KEY: dcc-jwt-secret-key-2024
       JWT_EXPIRE_HOURS: 24
