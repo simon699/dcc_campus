@@ -67,10 +67,10 @@ chmod +x server-deploy.sh
 - 用户: root
 
 **生产访问地址：**
-- 前端应用: http://47.103.27.235
-- 后端API: http://47.103.27.235/api
-- API文档: http://47.103.27.235/docs
-- ReDoc文档: http://47.103.27.235/redoc
+- 前端应用: http://campus.kongbaijiyi.com
+- 后端API: http://campus.kongbaijiyi.com/api
+- API文档: http://campus.kongbaijiyi.com/docs
+- ReDoc文档: http://campus.kongbaijiyi.com/redoc
 
 ## 环境配置
 

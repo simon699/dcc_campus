@@ -139,13 +139,13 @@ DEBUG=false
 # ===================
 # 前端配置
 # ===================
-NEXT_PUBLIC_API_BASE_URL=http://${SERVER_IP}/api
+NEXT_PUBLIC_API_BASE_URL=http://campus.kongbaijiyi.com/api
 NODE_ENV=production
 
 # ===================
 # 部署配置
 # ===================
-SERVER_DOMAIN=${SERVER_IP}
+SERVER_DOMAIN=campus.kongbaijiyi.com
 ENABLE_HTTPS=false
 LOG_LEVEL=INFO
 ENABLE_MONITORING=true
@@ -229,8 +229,8 @@ deploy_on_server() {
         
         echo ""
         echo "部署完成！"
-        echo "访问地址: http://${SERVER_IP}"
-        echo "API文档: http://${SERVER_IP}/docs"
+        echo "访问地址: http://campus.kongbaijiyi.com"
+        echo "API文档: http://campus.kongbaijiyi.com/docs"
         echo ""
         echo "常用命令："
         echo "查看日志: docker-compose -f docker-compose-fast.yml logs -f"
@@ -264,9 +264,9 @@ verify_deployment() {
     print_info "部署验证完成"
     echo ""
     echo "访问地址："
-    echo "前端应用: http://${SERVER_IP}"
-    echo "后端API: http://${SERVER_IP}/api"
-    echo "API文档: http://${SERVER_IP}/docs"
+    echo "前端应用: http://campus.kongbaijiyi.com"
+    echo "后端API: http://campus.kongbaijiyi.com/api"
+    echo "API文档: http://campus.kongbaijiyi.com/docs"
     echo "ReDoc文档: http://${SERVER_IP}/redoc"
 }
 
@@ -291,9 +291,9 @@ show_deployment_info() {
     echo "项目名称: ${PROJECT_NAME}"
     echo ""
     echo "访问地址："
-    echo "前端应用: http://${SERVER_IP}"
-    echo "后端API: http://${SERVER_IP}/api"
-    echo "API文档: http://${SERVER_IP}/docs"
+    echo "前端应用: http://campus.kongbaijiyi.com"
+    echo "后端API: http://campus.kongbaijiyi.com/api"
+    echo "API文档: http://campus.kongbaijiyi.com/docs"
     echo ""
     echo "服务器管理命令："
     echo "ssh ${SERVER_USER}@${SERVER_IP}"
