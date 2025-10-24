@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# DCC数字员工系统 - 安全服务器部署脚本
-# 适用于阿里云ECS服务器部署 (IP: 47.103.27.235)
-# 此版本不会删除其他项目的Docker资源
+# DCC数字员工系统 - 服务器端部署脚本
+# 适用于代码已通过Git同步到服务器的情况
 
 set -e  # 遇到错误立即退出
 
@@ -16,7 +15,6 @@ NC='\033[0m' # No Color
 # 服务器配置
 SERVER_IP="47.103.27.235"
 SERVER_USER="root"
-PROJECT_NAME="dcc-digital-employee"
 DEPLOY_DIR="/opt/dcc-digital-employee"
 
 # 打印带颜色的消息
@@ -36,33 +34,10 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# 检查本地环境
-check_local_env() {
-    print_info "检查本地环境..."
-    
-    if ! command -v docker &> /dev/null; then
-        print_error "本地Docker未安装，请先安装Docker"
-        exit 1
-    fi
-    
-    if ! command -v docker-compose &> /dev/null; then
-        print_error "本地Docker Compose未安装，请先安装Docker Compose"
-        exit 1
-    fi
-    
-    if ! command -v rsync &> /dev/null; then
-        print_error "rsync未安装，请先安装rsync"
-        exit 1
-    fi
-    
-    print_success "本地环境检查通过"
-}
-
 # 检查服务器连接
 check_server_connection() {
     print_info "检查服务器连接..."
     
-    # 尝试SSH连接（支持密码认证）
     if ! ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "echo '连接成功'" 2>/dev/null; then
         print_warning "SSH连接需要密码认证"
         print_info "请在接下来的连接中输入服务器密码"
@@ -84,33 +59,9 @@ check_server_connection() {
     fi
 }
 
-# 检查服务器代码同步状态
-check_server_code() {
-    print_info "检查服务器代码同步状态..."
-    
-    # 检查服务器上是否有项目代码
-    if ! ssh -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "test -d ${DEPLOY_DIR}" 2>/dev/null; then
-        print_error "服务器上未找到项目代码目录: ${DEPLOY_DIR}"
-        print_info "请确保："
-        echo "1. 代码已通过Git同步到服务器"
-        echo "2. 服务器目录路径正确"
-        echo "3. 服务器用户权限正确"
-        exit 1
-    fi
-    
-    # 检查关键文件是否存在
-    if ! ssh -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "test -f ${DEPLOY_DIR}/docker-compose-fast.yml" 2>/dev/null; then
-        print_error "服务器上未找到docker-compose-fast.yml文件"
-        print_info "请确保项目代码已完整同步到服务器"
-        exit 1
-    fi
-    
-    print_success "服务器代码检查通过"
-}
-
-# 在服务器上部署（安全版本）
+# 在服务器上执行部署
 deploy_on_server() {
-    print_info "在服务器上执行安全部署..."
+    print_info "在服务器上执行部署..."
     print_warning "部署过程中可能需要输入服务器密码"
     
     # 在服务器上执行部署命令
@@ -118,7 +69,7 @@ deploy_on_server() {
         set -e
         
         echo "=========================================="
-        echo "DCC数字员工系统 - 安全服务器部署"
+        echo "DCC数字员工系统 - 服务器部署"
         echo "服务器: 47.103.27.235"
         echo "部署目录: /opt/dcc-digital-employee"
         echo "=========================================="
@@ -230,16 +181,14 @@ verify_deployment() {
     echo "API文档: http://campus.kongbaijiyi.com/docs"
 }
 
-
 # 显示部署信息
 show_deployment_info() {
     echo ""
     echo "=========================================="
-    echo "安全部署信息"
+    echo "部署信息"
     echo "=========================================="
     echo "服务器IP: ${SERVER_IP}"
     echo "部署目录: ${DEPLOY_DIR}"
-    echo "项目名称: ${PROJECT_NAME}"
     echo ""
     echo "访问地址："
     echo "前端应用: http://campus.kongbaijiyi.com"
@@ -261,18 +210,13 @@ show_deployment_info() {
 # 主函数
 main() {
     echo "=========================================="
-    echo "DCC数字员工系统 - 安全服务器部署"
+    echo "DCC数字员工系统 - 服务器部署"
     echo "目标服务器: ${SERVER_IP}"
+    echo "前提条件: 代码已通过Git同步到服务器"
     echo "=========================================="
-    
-    # 检查本地环境
-    check_local_env
     
     # 检查服务器连接
     check_server_connection
-    
-    # 检查服务器代码同步状态
-    check_server_code
     
     # 在服务器上部署
     deploy_on_server
@@ -283,7 +227,7 @@ main() {
     # 显示部署信息
     show_deployment_info
     
-    print_success "安全部署完成！"
+    print_success "部署完成！"
 }
 
 # 如果直接运行脚本
