@@ -4,7 +4,7 @@
 services:
   # MySQL数据库 - 使用自定义端口避免冲突
   mysql:
-    image: mysql:8.0
+    image: mysql:5.7
     container_name: dcc-mysql
     restart: always
     environment:
@@ -19,7 +19,6 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/database:/docker-entrypoint-initdb.d:ro
-    command: --default-authentication-plugin=mysql_native_password
     networks:
       - dcc-network
     healthcheck:

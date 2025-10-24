@@ -32,3 +32,4 @@ CREATE TABLE `dcc_leads_follow` (
   KEY `idx_new_follow_time` (`new_follow_time`),
   KEY `idx_next_follow_time` (`next_follow_time`)
 ) ENGINE=InnoDB AUTO_INCREMENT=17509 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='DCC线索跟进表';
+
