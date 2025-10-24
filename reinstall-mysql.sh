@@ -43,6 +43,14 @@ fi
 
 print_info "Docker环境检查完成"
 
+# 检查网络连接
+print_info "检查网络连接..."
+if ping -c 3 docker.io > /dev/null 2>&1; then
+    print_info "网络连接正常"
+else
+    print_warning "网络连接可能有问题，将使用镜像源"
+fi
+
 # 停止并删除现有的MySQL容器
 print_info "停止现有的MySQL容器..."
 docker stop dcc-mysql 2>/dev/null || true
@@ -57,12 +65,77 @@ docker rmi mysql:5.7 2>/dev/null || true
 print_info "清理Docker系统..."
 docker system prune -f
 
-# 拉取MySQL镜像
-print_info "拉取MySQL 8.0镜像..."
-docker pull mysql:8.0
+# 配置Docker镜像源（针对中国大陆网络优化）
+print_info "配置Docker镜像源..."
+if [ ! -f /etc/docker/daemon.json ]; then
+    sudo mkdir -p /etc/docker
+    sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "registry-mirrors": [
+        "https://docker.1ms.run",
+    "https://g0qd096q.mirror.aliyuncs.com",
+    "https://docker-0.unsee.tech",
+    "https://docker.xuanyuan.me",
+    "https://mirror.ccs.tencentyun.com"
+  ],
+  "max-concurrent-downloads": 3,
+  "max-concurrent-uploads": 5,
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+EOF
+    print_info "Docker镜像源配置完成，重启Docker服务..."
+    sudo systemctl restart docker
+    sleep 5
+fi
 
-print_info "拉取MySQL 5.7镜像..."
-docker pull mysql:5.7
+# 拉取MySQL镜像（带重试机制）
+pull_mysql_image() {
+    local image=$1
+    local max_attempts=3
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        print_info "拉取 $image 镜像 (尝试 $attempt/$max_attempts)..."
+        if docker pull $image; then
+            print_info "$image 镜像拉取成功"
+            return 0
+        else
+            print_warning "$image 镜像拉取失败，重试 $attempt/$max_attempts"
+            sleep 5
+            ((attempt++))
+        fi
+    done
+    
+    print_error "$image 镜像拉取失败，请检查网络连接"
+    return 1
+}
+
+# 拉取MySQL镜像
+if ! pull_mysql_image "mysql:8.0"; then
+    print_warning "MySQL 8.0镜像拉取失败，尝试使用MySQL 5.7..."
+    if ! pull_mysql_image "mysql:5.7"; then
+        print_error "所有MySQL镜像拉取失败"
+        print_info "请尝试以下解决方案："
+        print_info "1. 检查网络连接"
+        print_info "2. 手动拉取镜像: docker pull mysql:5.7"
+        print_info "3. 或者使用本地已有镜像"
+        
+        # 检查是否有本地MySQL镜像
+        if docker images | grep -q mysql; then
+            print_info "发现本地MySQL镜像，将使用本地镜像"
+            docker images | grep mysql
+        else
+            print_error "没有可用的MySQL镜像，脚本退出"
+            exit 1
+        fi
+    fi
+else
+    pull_mysql_image "mysql:5.7"
+fi
 
 # 停止所有相关服务
 print_info "停止所有相关服务..."
