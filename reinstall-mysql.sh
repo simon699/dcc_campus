@@ -72,7 +72,7 @@ if [ ! -f /etc/docker/daemon.json ]; then
     sudo tee /etc/docker/daemon.json > /dev/null <<EOF
 {
   "registry-mirrors": [
-        "https://docker.1ms.run",
+    "https://docker.1ms.run",
     "https://g0qd096q.mirror.aliyuncs.com",
     "https://docker-0.unsee.tech",
     "https://docker.xuanyuan.me",
