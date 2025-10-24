@@ -11,7 +11,7 @@ services:
       MYSQL_ROOT_PASSWORD: root123456
       MYSQL_DATABASE: dcc_employee_db
       MYSQL_USER: dcc_user
-      MYSQL_PASSWORD: ,Dcc123456
+      MYSQL_PASSWORD: ",Dcc123456"
       TZ: Asia/Shanghai
     # 使用自定义端口映射，避免与系统MySQL冲突
     ports:
