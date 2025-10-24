@@ -38,8 +38,10 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
-# 安装dumb-init
-RUN apk add --no-cache dumb-init
+# 配置阿里云镜像源加速
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+# 安装dumb-init（已经在deps阶段安装过，这里不需要重复安装）
+# RUN apk add --no-cache dumb-init
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
