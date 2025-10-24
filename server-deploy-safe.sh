@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# DCC数字员工系统 - 服务器部署脚本
+# DCC数字员工系统 - 安全服务器部署脚本
 # 适用于阿里云ECS服务器部署 (IP: 47.103.27.235)
+# 此版本不会删除其他项目的Docker资源
 
 set -e  # 遇到错误立即退出
 
@@ -174,15 +175,15 @@ upload_to_server() {
     print_success "文件上传完成"
 }
 
-# 在服务器上部署
+# 在服务器上部署（安全版本）
 deploy_on_server() {
-    print_info "在服务器上执行部署..."
+    print_info "在服务器上执行安全部署..."
     
     ssh ${SERVER_USER}@${SERVER_IP} << EOF
         set -e
         
         echo "=========================================="
-        echo "DCC数字员工系统 - 服务器部署"
+        echo "DCC数字员工系统 - 安全服务器部署"
         echo "服务器: ${SERVER_IP}"
         echo "部署目录: ${DEPLOY_DIR}"
         echo "=========================================="
@@ -203,25 +204,42 @@ deploy_on_server() {
             chmod +x /usr/local/bin/docker-compose
         fi
         
-        # 停止并删除现有容器
-        echo "停止并删除现有容器..."
+        # 安全停止DCC项目相关容器（不影响其他项目）
+        echo "停止DCC项目相关容器..."
         docker-compose -f docker-compose-fast.yml down --remove-orphans 2>/dev/null || true
         docker-compose -f docker-compose.yml down --remove-orphans 2>/dev/null || true
         
-        # 删除相关容器和网络
+        # 只删除DCC项目相关的容器和网络
+        echo "删除DCC项目相关容器和网络..."
         docker rm -f dcc-mysql dcc-backend dcc-frontend dcc-nginx 2>/dev/null || true
         docker network rm dcc-network 2>/dev/null || true
         
-        # 清理Docker资源（仅清理未使用的镜像，不影响其他项目）
-        echo "清理未使用的Docker镜像..."
-        docker image prune -f
+        # 显示当前Docker资源状态
+        echo "当前Docker资源状态："
+        echo "容器数量: \$(docker ps -a | wc -l)"
+        echo "镜像数量: \$(docker images | wc -l)"
+        echo "网络数量: \$(docker network ls | wc -l)"
+        echo "卷数量: \$(docker volume ls | wc -l)"
         
-        # 可选：清理未使用的卷（谨慎使用）
-        echo "是否清理未使用的Docker卷？这可能会影响其他项目的数据"
-        echo "如需清理，请手动执行: docker volume prune -f"
+        # 询问是否清理未使用的镜像
+        echo ""
+        echo "是否清理未使用的Docker镜像？"
+        echo "注意：这可能会删除其他项目未使用的镜像"
+        echo "如果服务器上只有DCC项目，可以选择清理"
+        echo "如果有其他项目，建议跳过清理"
+        echo ""
+        read -p "是否清理未使用的镜像？(y/N): " -n 1 -r
+        echo
+        if [[ \$REPLY =~ ^[Yy]\$ ]]; then
+            echo "清理未使用的Docker镜像..."
+            docker image prune -f
+            echo "镜像清理完成"
+        else
+            echo "跳过镜像清理，保持其他项目镜像"
+        fi
         
-        # 启动服务
-        echo "启动服务..."
+        # 启动DCC服务
+        echo "启动DCC服务..."
         docker-compose -f docker-compose-fast.yml up --build -d
         
         # 等待服务启动
@@ -229,13 +247,16 @@ deploy_on_server() {
         sleep 30
         
         # 检查服务状态
-        echo "检查服务状态..."
+        echo "检查DCC服务状态..."
         docker-compose -f docker-compose-fast.yml ps
         
         echo ""
         echo "部署完成！"
         echo "访问地址: http://campus.kongbaijiyi.com"
         echo "API文档: http://campus.kongbaijiyi.com/docs"
+        echo ""
+        echo "DCC项目容器状态："
+        docker-compose -f docker-compose-fast.yml ps
         echo ""
         echo "常用命令："
         echo "查看日志: docker-compose -f docker-compose-fast.yml logs -f"
@@ -254,13 +275,13 @@ verify_deployment() {
     sleep 10
     
     # 检查服务是否可访问
-    if curl -f http://${SERVER_IP}/api/health >/dev/null 2>&1; then
+    if curl -f http://campus.kongbaijiyi.com/api/health >/dev/null 2>&1; then
         print_success "后端API服务正常"
     else
         print_warning "后端API服务可能未就绪，请稍后检查"
     fi
     
-    if curl -f http://${SERVER_IP} >/dev/null 2>&1; then
+    if curl -f http://campus.kongbaijiyi.com >/dev/null 2>&1; then
         print_success "前端服务正常"
     else
         print_warning "前端服务可能未就绪，请稍后检查"
@@ -272,7 +293,6 @@ verify_deployment() {
     echo "前端应用: http://campus.kongbaijiyi.com"
     echo "后端API: http://campus.kongbaijiyi.com/api"
     echo "API文档: http://campus.kongbaijiyi.com/docs"
-    echo "ReDoc文档: http://${SERVER_IP}/redoc"
 }
 
 # 清理临时文件
@@ -289,7 +309,7 @@ cleanup_temp() {
 show_deployment_info() {
     echo ""
     echo "=========================================="
-    echo "部署信息"
+    echo "安全部署信息"
     echo "=========================================="
     echo "服务器IP: ${SERVER_IP}"
     echo "部署目录: ${DEPLOY_DIR}"
@@ -305,12 +325,17 @@ show_deployment_info() {
     echo "cd ${DEPLOY_DIR}"
     echo "docker-compose -f docker-compose-fast.yml logs -f"
     echo ""
+    echo "安全说明："
+    echo "- 只影响DCC项目相关的Docker资源"
+    echo "- 不会删除其他项目的容器、镜像、网络"
+    echo "- 可选择是否清理未使用的镜像"
+    echo ""
 }
 
 # 主函数
 main() {
     echo "=========================================="
-    echo "DCC数字员工系统 - 服务器部署"
+    echo "DCC数字员工系统 - 安全服务器部署"
     echo "目标服务器: ${SERVER_IP}"
     echo "=========================================="
     
@@ -338,7 +363,7 @@ main() {
     # 显示部署信息
     show_deployment_info
     
-    print_success "部署完成！"
+    print_success "安全部署完成！"
 }
 
 # 如果直接运行脚本
