@@ -93,8 +93,8 @@ services:
     container_name: dcc-nginx
     restart: always
     ports:
-      - "8080:80"    # 使用8080端口，避免与系统80端口冲突
-      - "8443:443"   # 使用8443端口，避免与系统443端口冲突
+      - "80:80"      # 使用标准80端口
+      - "443:443"    # 使用标准443端口
     volumes:
       - ./nginx-multi-project.conf:/etc/nginx/nginx.conf:ro
       - nginx_logs:/var/log/nginx
