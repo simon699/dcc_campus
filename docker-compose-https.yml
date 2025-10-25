@@ -12,8 +12,8 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
-      JWT_SECRET_KEY: dcc-jwt-secret-key-2024
-      JWT_EXPIRE_HOURS: 24
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dcc-jwt-secret-key-2024}
+      JWT_EXPIRE_HOURS: ${JWT_EXPIRE_HOURS:-24}
       ENVIRONMENT: production
       DEBUG: "False"
       ALIBABA_CLOUD_ACCESS_KEY_ID: ${ALIBABA_CLOUD_ACCESS_KEY_ID:-}
@@ -43,7 +43,7 @@ services:
     environment:
       NODE_ENV: production
       DOCKER_ENV: "true"
-      NEXT_PUBLIC_API_BASE_URL: http://localhost/api
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://campus.kongbaijiyi.com/api}
     ports:
       - "3000:3000"
     depends_on:
@@ -57,7 +57,7 @@ services:
       retries: 3
       start_period: 40s
 
-  # Nginx反向代理
+  # Nginx反向代理（支持HTTPS）
   nginx:
     image: nginx:alpine
     container_name: dcc-nginx
@@ -66,7 +66,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx-docker.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-https.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
       - nginx_logs:/var/log/nginx
     depends_on:
       - frontend
@@ -74,7 +75,7 @@ services:
     networks:
       - dcc-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "https://localhost/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -86,4 +87,3 @@ networks:
 volumes:
   nginx_logs:
     driver: local
-

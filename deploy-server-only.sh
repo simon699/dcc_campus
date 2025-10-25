@@ -38,24 +38,70 @@ print_error() {
 check_server_connection() {
     print_info "检查服务器连接..."
     
-    if ! ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "echo '连接成功'" 2>/dev/null; then
-        print_warning "SSH连接需要密码认证"
-        print_info "请在接下来的连接中输入服务器密码"
-        
-        # 测试连接（会提示输入密码）
-        if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "echo '连接成功'" 2>/dev/null; then
-            print_success "服务器连接正常"
-        else
-            print_error "无法连接到服务器 ${SERVER_IP}"
-            print_info "请确保："
-            echo "1. 服务器IP地址正确"
-            echo "2. 服务器密码正确"
-            echo "3. 服务器防火墙允许SSH连接"
-            echo "4. 服务器用户权限正确"
-            exit 1
-        fi
-    else
+    # 直接尝试连接（会提示输入密码）
+    print_warning "SSH连接需要密码认证"
+    print_info "请在接下来的连接中输入服务器密码"
+    
+    if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "echo '连接成功'"; then
         print_success "服务器连接正常"
+    else
+        print_error "无法连接到服务器 ${SERVER_IP}"
+        print_info "请确保："
+        echo "1. 服务器IP地址正确"
+        echo "2. 服务器密码正确"
+        echo "3. 服务器防火墙允许SSH连接"
+        echo "4. 服务器用户权限正确"
+        exit 1
+    fi
+}
+
+# 检查并同步代码到服务器
+sync_code_to_server() {
+    print_info "检查服务器代码状态..."
+    
+    # 检查服务器上是否有项目代码
+    if ! ssh -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "test -d ${DEPLOY_DIR}" 2>/dev/null; then
+        print_info "服务器上未找到项目目录，正在创建..."
+        ssh -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "mkdir -p ${DEPLOY_DIR}"
+    fi
+    
+    # 检查关键文件是否存在
+    if ! ssh -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "test -f ${DEPLOY_DIR}/docker-compose-fast.yml" 2>/dev/null; then
+        print_warning "服务器上未找到项目文件，正在同步代码..."
+        
+        # 创建临时部署目录
+        TEMP_DIR="/tmp/dcc-deploy-$(date +%s)"
+        mkdir -p "$TEMP_DIR"
+        
+        # 复制项目文件
+        print_info "准备项目文件..."
+        rsync -av --exclude='.git' \
+                  --exclude='node_modules' \
+                  --exclude='.next' \
+                  --exclude='__pycache__' \
+                  --exclude='*.pyc' \
+                  --exclude='venv' \
+                  --exclude='.env' \
+                  --exclude='*.log' \
+                  --exclude='mysql_data' \
+                  --exclude='nginx_logs' \
+                  ./ "$TEMP_DIR/"
+        
+        # 上传项目文件
+        print_info "上传项目文件到服务器..."
+        print_warning "上传过程中可能需要输入服务器密码"
+        rsync -av --delete -e "ssh -o StrictHostKeyChecking=no" "$TEMP_DIR/" ${SERVER_USER}@${SERVER_IP}:${DEPLOY_DIR}/
+        
+        # 设置文件权限
+        print_info "设置文件权限..."
+        ssh -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "chmod +x ${DEPLOY_DIR}/*.sh"
+        
+        # 清理临时文件
+        rm -rf "$TEMP_DIR"
+        
+        print_success "代码同步完成"
+    else
+        print_success "服务器代码检查通过"
     fi
 }
 
@@ -212,11 +258,13 @@ main() {
     echo "=========================================="
     echo "DCC数字员工系统 - 服务器部署"
     echo "目标服务器: ${SERVER_IP}"
-    echo "前提条件: 代码已通过Git同步到服务器"
     echo "=========================================="
     
     # 检查服务器连接
     check_server_connection
+    
+    # 检查并同步代码到服务器
+    sync_code_to_server
     
     # 在服务器上部署
     deploy_on_server
