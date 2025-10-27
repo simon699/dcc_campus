@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS users (
 -- 创建DCC用户表
 CREATE TABLE IF NOT EXISTS dcc_user (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_name VARCHAR(50) NOT NULL COMMENT '用户名称',
-    user_password VARCHAR(50) NOT NULL COMMENT '用户密码',
-    user_org_id VARCHAR(50) NOT NULL COMMENT '用户组织ID',
+    user_name VARCHAR(100) NOT NULL COMMENT '用户名称',
+    user_password VARCHAR(255) NOT NULL COMMENT '用户密码',
+    user_org_id VARCHAR(100) NOT NULL COMMENT '用户组织ID',
     user_status INT NOT NULL DEFAULT 1 COMMENT '用户状态:1:启用；0:禁用',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
