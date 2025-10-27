@@ -58,9 +58,11 @@ test_connection() {
     
     docker run --rm \
         --network host \
+        -v $(pwd):/app \
+        -w /app \
         python:3.11-slim \
         bash -c "
-            pip install pymysql python-dotenv >/dev/null 2>&1
+            pip install --timeout=60 pymysql python-dotenv
             python -c \"
 import pymysql
 import os
@@ -107,7 +109,7 @@ create_database() {
         -w /app \
         python:3.11-slim \
         bash -c "
-            pip install pymysql python-dotenv >/dev/null 2>&1
+            pip install --timeout=60 pymysql python-dotenv
             python -c \"
 import pymysql
 import os
@@ -156,7 +158,7 @@ create_tables() {
         -w /app \
         python:3.11-slim \
         bash -c "
-            pip install pymysql python-dotenv >/dev/null 2>&1
+            pip install --timeout=60 pymysql python-dotenv
             python -c \"
 import pymysql
 import os
