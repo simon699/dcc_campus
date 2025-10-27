@@ -94,8 +94,8 @@ async def register(user: UserRegister):
         
         # 插入用户数据
         execute_update(
-            "INSERT INTO users (username, password, phone, create_time) VALUES (%s, %s, %s, %s)",
-            (user.username, hashed_password, user.phone, create_time)
+            "INSERT INTO users (username, password, phone, organization_id, create_time, user_role) VALUES (%s, %s, %s, %s, %s, %s)",
+            (user.username, hashed_password, user.phone, "DEFAULT_ORG", create_time, 2)
         )
         
         # 获取新用户信息
