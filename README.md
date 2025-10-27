@@ -15,29 +15,47 @@ DCC数字员工系统是一个智能化的客户关系管理平台，集成了�
                               └─────────┬──────────────┘
                                         ▼
                               ┌─────────────────┐
-                              │   MySQL         │
-                              │   (数据库)      │
+                              │   MySQL RDS     │
+                              │   (阿里云数据库) │
                               └─────────────────┘
 ```
 
-## 🚀 快速开始
+## 🚀 快速部署
 
-### 环境要求
-- Python 3.8+
-- Node.js 16+
-- MySQL 8.0+
-- Nginx
+### 阿里云部署
+
+1. **准备环境**
+   - 阿里云ECS服务器（Ubuntu 20.04+）
+   - 阿里云RDS MySQL数据库
+   - 配置好.env环境变量文件
+
+2. **执行部署**
+   ```bash
+   # 上传项目到服务器
+   git clone <repository-url> /opt/dcc_campus
+   
+   # 登录服务器
+   ssh user@your-server
+   
+   # 进入项目目录
+   cd /opt/dcc_campus
+   
+   # 执行部署脚本
+   ./deploy-aliyun.sh
+   ```
+
+3. **访问系统**
+   - 主站: `http://campus.kongbaijiyi.com`
+   - API文档: `http://campus.kongbaijiyi.com/docs`
+   - 健康检查: `http://campus.kongbaijiyi.com/api/health`
 
 ### 本地开发
-```bash
-# 克隆项目
-git clone <repository-url>
-cd V1.0
 
+```bash
 # 后端开发
 cd backend
 python3 -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
@@ -47,52 +65,24 @@ npm install
 npm run dev
 ```
 
-### 生产部署
-```bash
-# 使用部署脚本
-./deploy-simple.sh
-
-# 或手动部署
-# 1. 配置服务器环境
-# 2. 部署后端服务
-# 3. 部署前端服务
-# 4. 配置Nginx
-```
-
 ## 📁 项目结构
 
 ```
 V1.0/
 ├── backend/                    # 后端代码
 │   ├── api/                   # API接口
-│   │   ├── auth.py           # 认证相关
-│   │   ├── auto_call_api.py  # 外呼API
-│   │   ├── dcc_leads.py      # 线索管理
-│   │   └── ...
 │   ├── database/              # 数据库相关
-│   │   ├── db.py             # 数据库连接
-│   │   └── *.sql             # SQL脚本
-│   ├── main.py               # 主程序
-│   └── requirements.txt      # Python依赖
+│   ├── Dockerfile.china       # 中国版Dockerfile
+│   └── requirements.txt       # Python依赖
 ├── dcc-digital-employee/      # 前端代码
-│   ├── src/
-│   │   ├── app/              # 页面组件
-│   │   ├── components/       # 通用组件
-│   │   ├── services/         # API服务
-│   │   └── config/           # 配置文件
-│   ├── package.json          # Node.js依赖
-│   └── next.config.js        # Next.js配置
-├── nginx.conf                # Nginx配置
-├── deploy-simple.sh          # 部署脚本
-├── restart-all.sh            # 重启脚本
-└── DEPLOYMENT-CLEAN.md       # 详细部署文档
+│   ├── src/                   # 源代码
+│   └── Dockerfile             # 前端Dockerfile
+├── docker-compose-china.yml   # 中国版Docker Compose
+├── nginx-docker.conf          # Nginx配置
+├── deploy-aliyun.sh           # 阿里云部署脚本
+├── deploy-simple.sh           # 简化部署脚本
+└── .env                       # 环境变量配置
 ```
-
-## 🌐 访问地址
-
-- **生产环境**: https://campus.kongbaijiyi.com
-- **开发环境**: http://localhost:3000
-- **API文档**: https://campus.kongbaijiyi.com/docs
 
 ## 🔧 核心功能
 
@@ -113,71 +103,78 @@ V1.0/
 - **权限管理**: 基于角色的权限控制
 - **数据加密**: 敏感数据加密存储
 
-## 📝 配置说明
+## 📝 环境配置
 
-### 环境变量
-- 前端配置: `dcc-digital-employee/src/config/environment.ts`
-- 后端配置: `backend/config.py`
-
-### 数据库配置
-- 数据库名: `dcc_employee_db`
-- 用户名: `dcc_user`
-- 密码: `,Dcc123456`
-
-## 🔧 维护命令
-
-### 重启服务
+### 环境变量 (.env)
 ```bash
-# 完整重启
-./restart-all.sh
+# 数据库配置
+DB_HOST=your-rds-host.mysql.rds.aliyuncs.com
+DB_PORT=3306
+DB_USER=your_username
+DB_PASSWORD=your_password
+DB_NAME=dcc_employee_db
 
-# 单独重启
-# 后端
-cd backend && pkill -f "uvicorn" && nohup uvicorn main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+# JWT配置
+JWT_SECRET_KEY=your-secret-key
+JWT_EXPIRE_HOURS=24
 
-# 前端
-cd dcc-digital-employee && pkill -f "next" && nohup npm start > frontend.log 2>&1 &
+# 阿里云配置
+ALIBABA_CLOUD_ACCESS_KEY_ID=your_access_key
+ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_secret_key
+INSTANCE_ID=your_instance_id
+DASHSCOPE_API_KEY=your_dashscope_key
+ALIBAILIAN_APP_ID=your_app_id
 
-# Nginx
-systemctl restart nginx
+# 前端配置
+NEXT_PUBLIC_API_BASE_URL=http://campus.kongbaijiyi.com/api
 ```
 
-### 查看日志
+## 🔧 管理命令
+
+部署完成后，可以使用以下管理脚本：
+
 ```bash
-# 后端日志
-tail -f backend/backend.log
+# 查看服务状态
+./check-status.sh
 
-# 前端日志
-tail -f dcc-digital-employee/frontend.log
+# 重启服务
+./restart-services.sh
 
-# Nginx日志
-tail -f /var/log/nginx/access.log
+# 停止服务
+./stop-services.sh
+
+# 查看日志
+./view-logs.sh
 ```
 
 ## 📊 监控和健康检查
 
 - **后端健康检查**: `GET /api/health`
 - **前端状态**: 访问首页检查
-- **服务监控**: 进程和端口状态检查
+- **服务监控**: `docker-compose -f docker-compose-china.yml ps`
 
 ## 🆘 故障排除
 
 ### 常见问题
 1. **服务无法访问**: 检查防火墙和端口配置
-2. **数据库连接失败**: 检查MySQL服务状态
-3. **前端显示异常**: 检查Node.js进程和日志
-4. **API调用失败**: 检查后端进程和日志
+2. **数据库连接失败**: 检查RDS连接信息和网络
+3. **前端显示异常**: 检查Docker容器状态
+4. **API调用失败**: 检查后端容器日志
 
 ### 调试步骤
-1. 检查服务进程状态
-2. 查看错误日志
-3. 验证网络连接
-4. 检查配置文件
+1. 检查Docker容器状态: `docker-compose -f docker-compose-china.yml ps`
+2. 查看错误日志: `docker-compose -f docker-compose-china.yml logs`
+3. 验证网络连接: `curl http://localhost/api/health`
+4. 检查配置文件: 验证.env文件配置
 
-## 📚 文档
+## 📚 技术栈
 
-- [部署文档](DEPLOYMENT-CLEAN.md) - 详细的部署和维护指南
-- [API文档](https://campus.kongbaijiyi.com/docs) - 在线API文档
+- **前端**: Next.js 14 + React 18 + TypeScript + Tailwind CSS
+- **后端**: Python FastAPI + SQLAlchemy + Pydantic
+- **数据库**: MySQL 8.0 (阿里云RDS)
+- **容器**: Docker + Docker Compose
+- **反向代理**: Nginx
+- **部署**: 阿里云ECS + Docker
 
 ## 🤝 贡献
 
@@ -189,6 +186,6 @@ tail -f /var/log/nginx/access.log
 
 ---
 
-**最后更新**: 2025-08-08  
+**最后更新**: 2025-01-27  
 **版本**: V1.0  
 **状态**: ✅ 生产环境运行中

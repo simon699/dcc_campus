@@ -128,13 +128,13 @@ deploy_app() {
     log_info "停止现有服务..."
     docker-compose down 2>/dev/null || true
     
-    # 构建镜像
-    log_info "构建Docker镜像..."
-    docker-compose build --no-cache
+    # 构建镜像（使用国内镜像源）
+    log_info "构建Docker镜像（使用国内镜像源）..."
+    docker-compose -f docker-compose-china.yml build --no-cache
     
     # 启动服务
     log_info "启动服务..."
-    docker-compose up -d
+    docker-compose -f docker-compose-china.yml up -d
     
     # 等待服务启动
     log_info "等待服务启动..."
@@ -148,7 +148,7 @@ verify_deployment() {
     log_info "验证部署结果..."
     
     # 检查服务状态
-    docker-compose ps
+    docker-compose -f docker-compose-china.yml ps
     
     # 检查API健康状态
     log_info "检查API健康状态..."
