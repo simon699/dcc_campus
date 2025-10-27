@@ -82,22 +82,39 @@ init_database() {
         exit 1
     fi
     
-    # 安装Python依赖
+    # 创建虚拟环境（如果不存在）
+    if [ ! -d "venv" ]; then
+        log_info "创建Python虚拟环境..."
+        python3 -m venv venv
+    fi
+    
+    # 激活虚拟环境并安装依赖
     if [ -f "backend/requirements.txt" ]; then
-        log_info "安装Python依赖..."
-        pip3 install -r backend/requirements.txt
+        log_info "在虚拟环境中安装Python依赖..."
+        source venv/bin/activate
+        
+        # 升级pip到最新版本
+        pip install --upgrade pip
+        
+        # 安装依赖
+        pip install -r backend/requirements.txt
+        
+        deactivate
     fi
     
     # 运行数据库初始化脚本
     if [ -f "init_rds_database.py" ]; then
         log_info "执行数据库初始化..."
-        python3 init_rds_database.py
+        source venv/bin/activate
+        python init_rds_database.py
         if [ $? -eq 0 ]; then
             log_success "数据库初始化完成"
         else
             log_error "数据库初始化失败"
+            deactivate
             exit 1
         fi
+        deactivate
     else
         log_warning "未找到数据库初始化脚本，跳过数据库初始化"
     fi
