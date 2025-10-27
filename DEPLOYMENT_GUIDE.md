@@ -50,7 +50,25 @@
    ALIBAILIAN_APP_ID=your_bailian_app_id
    ```
 
-3. **执行部署脚本**
+3. **配置Docker专属加速器**（推荐）
+   ```bash
+   # 给脚本执行权限
+   chmod +x setup-docker-mirror.sh
+   
+   # 配置阿里云专属镜像加速器
+   ./setup-docker-mirror.sh
+   ```
+
+4. **预拉取Docker镜像**（推荐）
+   ```bash
+   # 给脚本执行权限
+   chmod +x pull-images.sh
+   
+   # 预拉取镜像（解决网络超时问题）
+   ./pull-images.sh
+   ```
+
+5. **执行部署脚本**
    ```bash
    # 给脚本执行权限
    chmod +x deploy-aliyun.sh
@@ -59,7 +77,7 @@
    ./deploy-aliyun.sh
    ```
 
-4. **验证部署**
+6. **验证部署**
    ```bash
    # 检查服务状态
    ./check-status.sh

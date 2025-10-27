@@ -1,4 +1,4 @@
-# 使用Node.js 18作为基础镜像
+# 使用Node.js 18作为基础镜像（通过阿里云专属加速器拉取）
 FROM node:18-alpine AS base
 
 # 安装依赖阶段

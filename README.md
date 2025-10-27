@@ -156,10 +156,11 @@ NEXT_PUBLIC_API_BASE_URL=http://campus.kongbaijiyi.com/api
 ## 🆘 故障排除
 
 ### 常见问题
-1. **服务无法访问**: 检查防火墙和端口配置
-2. **数据库连接失败**: 检查RDS连接信息和网络
-3. **前端显示异常**: 检查Docker容器状态
-4. **API调用失败**: 检查后端容器日志
+1. **Docker镜像拉取超时**: 运行 `./setup-docker-mirror.sh` 配置专属加速器，然后运行 `./pull-images.sh` 预拉取镜像
+2. **服务无法访问**: 检查防火墙和端口配置
+3. **数据库连接失败**: 检查RDS连接信息和网络
+4. **前端显示异常**: 检查Docker容器状态
+5. **API调用失败**: 检查后端容器日志
 
 ### 调试步骤
 1. 检查Docker容器状态: `docker-compose -f docker-compose-china.yml ps`

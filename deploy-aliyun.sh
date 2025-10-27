@@ -133,6 +133,8 @@ configure_docker_registry() {
     sudo tee /etc/docker/daemon.json > /dev/null <<EOF
 {
     "registry-mirrors": [
+        "https://g0qd096q.mirror.aliyuncs.com",
+        "https://registry.cn-hangzhou.aliyuncs.com",
         "https://mirror.ccs.tencentyun.com",
         "https://docker.mirrors.ustc.edu.cn",
         "https://reg-mirror.qiniu.com"
@@ -141,7 +143,9 @@ configure_docker_registry() {
     "log-opts": {
         "max-size": "100m",
         "max-file": "3"
-    }
+    },
+    "max-concurrent-downloads": 10,
+    "max-concurrent-uploads": 5
 }
 EOF
     
@@ -295,7 +299,19 @@ deploy_app() {
     
     # 构建镜像（使用国内镜像源）
     log_info "构建Docker镜像（使用国内镜像源）..."
-    docker-compose -f docker-compose-china.yml build --no-cache
+    
+    # 设置Docker构建超时和重试
+    export DOCKER_BUILDKIT=1
+    export COMPOSE_DOCKER_CLI_BUILD=1
+    
+    # 先拉取基础镜像
+    log_info "预拉取基础镜像..."
+    docker pull python:3.10-slim || true
+    docker pull node:18-alpine || true
+    docker pull nginx:alpine || true
+    
+    # 构建镜像，增加超时时间
+    timeout 1800 docker-compose -f docker-compose-china.yml build --no-cache --parallel
     
     # 启动服务
     log_info "启动服务..."
