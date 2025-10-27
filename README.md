@@ -49,32 +49,19 @@ DCC数字员工系统是一个智能化的客户关系管理平台，集成了�
    - API文档: `http://campus.kongbaijiyi.com/docs`
    - 健康检查: `http://campus.kongbaijiyi.com/api/health`
 
-### 方式2：Docker部署
+### 服务重启
 
-1. **准备环境**
-   - 阿里云ECS服务器（Ubuntu 20.04+）
-   - 阿里云RDS MySQL数据库
-   - 配置好.env环境变量文件
+修改代码后，使用以下脚本重启服务：
 
-2. **执行部署**
+1. **重启前端服务**
    ```bash
-   # 上传项目到服务器
-   git clone <repository-url> /opt/dcc_campus
-   
-   # 登录服务器
-   ssh user@your-server
-   
-   # 进入项目目录
-   cd /opt/dcc_campus/dcc_campus
-   
-   # 执行部署脚本
-   ./deploy-aliyun.sh
+   ./restart-frontend.sh
    ```
 
-3. **访问系统**
-   - 主站: `http://campus.kongbaijiyi.com`
-   - API文档: `http://campus.kongbaijiyi.com/docs`
-   - 健康检查: `http://campus.kongbaijiyi.com/api/health`
+2. **重启后端服务**
+   ```bash
+   ./restart-backend.sh
+   ```
 
 ### 本地开发
 
@@ -99,15 +86,15 @@ V1.0/
 ├── backend/                    # 后端代码
 │   ├── api/                   # API接口
 │   ├── database/              # 数据库相关
-│   ├── Dockerfile.china       # 中国版Dockerfile
 │   └── requirements.txt       # Python依赖
 ├── dcc-digital-employee/      # 前端代码
 │   ├── src/                   # 源代码
-│   └── Dockerfile             # 前端Dockerfile
-├── docker-compose-china.yml   # 中国版Docker Compose
-├── nginx-docker.conf          # Nginx配置
-├── deploy-aliyun.sh           # 阿里云部署脚本
-├── deploy-simple.sh           # 简化部署脚本
+│   └── package.json           # 前端依赖
+├── deploy-ecs-direct.sh       # 直接部署脚本
+├── restart-frontend.sh        # 前端重启脚本
+├── restart-backend.sh         # 后端重启脚本
+├── fix-all-database.sh       # 数据库修复脚本
+├── check-database.sh         # 数据库检查脚本
 └── .env                       # 环境变量配置
 ```
 
@@ -161,38 +148,38 @@ NEXT_PUBLIC_API_BASE_URL=http://campus.kongbaijiyi.com/api
 部署完成后，可以使用以下管理脚本：
 
 ```bash
-# 查看服务状态
-./check-status.sh
+# 重启前端服务
+./restart-frontend.sh
 
-# 重启服务
-./restart-services.sh
+# 重启后端服务
+./restart-backend.sh
 
-# 停止服务
-./stop-services.sh
+# 检查数据库
+./check-database.sh
 
-# 查看日志
-./view-logs.sh
+# 修复数据库问题
+./fix-all-database.sh
 ```
 
 ## 📊 监控和健康检查
 
 - **后端健康检查**: `GET /api/health`
 - **前端状态**: 访问首页检查
-- **服务监控**: `docker-compose -f docker-compose-china.yml ps`
+- **服务监控**: 使用 `ps aux | grep uvicorn` 和 `ps aux | grep next` 查看进程状态
 
 ## 🆘 故障排除
 
 ### 常见问题
-1. **Docker镜像拉取超时**: 运行 `./setup-docker-mirror.sh` 配置专属加速器，然后运行 `./pull-images.sh` 预拉取镜像
-2. **服务无法访问**: 检查防火墙和端口配置
-3. **数据库连接失败**: 检查RDS连接信息和网络
-4. **前端显示异常**: 检查Docker容器状态
-5. **API调用失败**: 检查后端容器日志
+1. **服务无法访问**: 检查防火墙和端口配置
+2. **数据库连接失败**: 检查RDS连接信息和网络
+3. **前端显示异常**: 检查前端服务状态
+4. **API调用失败**: 检查后端服务日志
+5. **服务重启失败**: 手动停止进程后重新启动
 
 ### 调试步骤
-1. 检查Docker容器状态: `docker-compose -f docker-compose-china.yml ps`
-2. 查看错误日志: `docker-compose -f docker-compose-china.yml logs`
-3. 验证网络连接: `curl http://localhost/api/health`
+1. 检查服务状态: `ps aux | grep uvicorn` 和 `ps aux | grep next`
+2. 查看错误日志: `tail -f backend.log` 和 `tail -f frontend.log`
+3. 验证网络连接: `curl http://localhost:8000/api/health`
 4. 检查配置文件: 验证.env文件配置
 
 ## 📚 技术栈
@@ -200,9 +187,8 @@ NEXT_PUBLIC_API_BASE_URL=http://campus.kongbaijiyi.com/api
 - **前端**: Next.js 14 + React 18 + TypeScript + Tailwind CSS
 - **后端**: Python FastAPI + SQLAlchemy + Pydantic
 - **数据库**: MySQL 8.0 (阿里云RDS)
-- **容器**: Docker + Docker Compose
+- **部署**: 阿里云ECS + 直接部署
 - **反向代理**: Nginx
-- **部署**: 阿里云ECS + Docker
 
 ## 🤝 贡献
 

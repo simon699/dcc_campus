@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../config/environment';
+import { useAuth } from '../contexts/AuthContext';
 
 interface DccBindModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface DccBindModalProps {
 }
 
 export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBindModalProps) {
+  const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [dccUsername, setDccUsername] = useState('');
   const [dccPassword, setDccPassword] = useState('');
@@ -19,6 +21,40 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
   const [isLoading, setIsLoading] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [userOrgId, setUserOrgId] = useState<string>('');
+
+  // 获取用户组织ID
+  useEffect(() => {
+    const getUserOrgId = async () => {
+      try {
+        const accessToken = localStorage.getItem('access_token');
+        if (accessToken) {
+          const response = await fetch(`${API_BASE_URL}/token/verify`, {
+            method: 'GET',
+            headers: {
+              'access-token': accessToken,
+            },
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'success' && result.data) {
+              const orgId = result.data.get('organization_id') || result.data.organization_id;
+              if (orgId) {
+                setUserOrgId(orgId);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('获取用户组织ID失败:', error);
+      }
+    };
+
+    if (isOpen) {
+      getUserOrgId();
+    }
+  }, [isOpen]);
 
   // 生成验证码
   const generateCaptcha = () => {
@@ -88,7 +124,7 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
         body: JSON.stringify({ 
           user_name: dccUsername,
           user_password: dccPassword,
-          user_org_id: 'M0BFYPL' // 默认组织ID
+          user_org_id: userOrgId || 'DEFAULT_ORG' // 使用用户的实际组织ID
         }),
       });
 
@@ -112,7 +148,7 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
         },
         body: JSON.stringify({ 
           dcc_user: dccUsername,
-          dcc_user_org_id: 'M0BFYPL' // 使用默认组织ID
+          dcc_user_org_id: userOrgId || 'DEFAULT_ORG' // 使用用户的实际组织ID
         }),
       });
 
@@ -128,7 +164,7 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
         if (userStr) {
           const user = JSON.parse(userStr);
           user.dcc_user = dccUsername;
-          user.dcc_user_org_id = 'M0BFYPL';
+          user.dcc_user_org_id = userOrgId || 'DEFAULT_ORG';
           localStorage.setItem('user', JSON.stringify(user));
         }
         
@@ -152,7 +188,7 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
     if (userStr) {
       const user = JSON.parse(userStr);
       user.dcc_user = dccUsername;
-      user.dcc_user_org_id = 'M0BFYPL';
+      user.dcc_user_org_id = userOrgId || 'DEFAULT_ORG';
       localStorage.setItem('user', JSON.stringify(user));
     }
     
