@@ -29,7 +29,7 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
       try {
         const accessToken = localStorage.getItem('access_token');
         if (accessToken) {
-          const response = await fetch(`${API_BASE_URL}/token/verify`, {
+          const response = await fetch(`${API_BASE_URL}/auth/verify`, {
             method: 'GET',
             headers: {
               'access-token': accessToken,
@@ -38,12 +38,21 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
           
           if (response.ok) {
             const result = await response.json();
+            console.log('Token验证响应:', result);
             if (result.status === 'success' && result.data) {
-              const orgId = result.data.get('org_id') || result.data.org_id;
+              // 从多个可能的位置获取组织ID
+              const orgId = result.data.org_id || 
+                           result.data.user_info?.organization_id || 
+                           result.data.user_info?.org_id;
+              console.log('获取到的组织ID:', orgId);
               if (orgId) {
                 setUserOrgId(orgId);
+              } else {
+                console.warn('未找到组织ID');
               }
             }
+          } else {
+            console.error('Token验证失败:', response.status, response.statusText);
           }
         }
       } catch (error) {

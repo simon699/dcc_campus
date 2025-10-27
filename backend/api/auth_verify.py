@@ -28,8 +28,10 @@ async def verify_token(user_info: Dict[str, Any] = Depends(verify_access_token))
                 "valid": True,
                 "user_info": {
                     "username": user_info.get("username"),
-                    "user_id": user_info.get("user_id")
-                }
+                    "user_id": user_info.get("user_id"),
+                    "organization_id": user_info.get("organization_id")
+                },
+                "org_id": user_info.get("organization_id")  # 添加组织ID到顶层
             }
         }
     except HTTPException as e:
