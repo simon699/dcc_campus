@@ -39,7 +39,7 @@ export default function DccBindModal({ isOpen, onClose, onBindSuccess }: DccBind
           if (response.ok) {
             const result = await response.json();
             if (result.status === 'success' && result.data) {
-              const orgId = result.data.get('organization_id') || result.data.organization_id;
+              const orgId = result.data.get('org_id') || result.data.org_id;
               if (orgId) {
                 setUserOrgId(orgId);
               }
