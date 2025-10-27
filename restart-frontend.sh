@@ -95,11 +95,18 @@ build_frontend() {
 # 启动前端服务
 start_frontend() {
     log_info "启动前端服务..."
-    cd dcc-digital-employee
+    
+    # 确保在正确的目录
+    if [ ! -f "dcc-digital-employee/package.json" ]; then
+        log_error "未找到前端package.json文件"
+        exit 1
+    fi
     
     # 启动生产服务器
+    cd dcc-digital-employee
     nohup npm start > ../frontend.log 2>&1 &
     local frontend_pid=$!
+    cd ..
     
     # 等待服务启动
     sleep 5
@@ -112,10 +119,9 @@ start_frontend() {
     else
         log_error "前端服务启动失败"
         log_info "请检查日志文件: frontend.log"
+        log_info "尝试手动启动: cd dcc-digital-employee && npm start"
         exit 1
     fi
-    
-    cd ..
 }
 
 # 检查服务状态
