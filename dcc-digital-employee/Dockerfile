@@ -1,5 +1,5 @@
-# 使用Node.js 18作为基础镜像（通过阿里云专属加速器拉取）
-FROM node:18-alpine AS base
+# 使用Node.js 20作为基础镜像（更稳定的版本）
+FROM node:20-alpine AS base
 
 # 安装依赖阶段
 FROM base AS deps

@@ -55,12 +55,12 @@ pull_image() {
     return 1
 }
 
-# 镜像列表（使用阿里云专属加速器）
+# 镜像列表（使用稳定版本）
 images=(
-    "python:3.10-slim"
-    "node:18-alpine"
-    "nginx:alpine"
-    "mysql:8.0"
+    "registry.cn-hangzhou.aliyuncs.com/library/python:3.10-slim"
+    "node:20-alpine"
+    "registry.cn-hangzhou.aliyuncs.com/library/nginx:alpine"
+    "registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0"
 )
 
 log_info "开始预拉取Docker镜像..."
