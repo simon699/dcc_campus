@@ -5,6 +5,7 @@ from datetime import datetime
 import json
 import threading
 import asyncio
+import os
 from database.db import execute_query, execute_update
 from .auth import verify_access_token
 from openAPI.ali_bailian_api import ali_bailian_api
@@ -13,6 +14,14 @@ from openAPI.suspend_jobs import Sample as SuspendJobsSample
 from openAPI.resumeJobs import Sample as ResumeJobsSample
 
 auto_call_router = APIRouter(tags=["自动外呼任务"])
+
+# 系统常量配置
+CALL_STATUS_CONSTANTS = {
+    "NOT_STARTED": os.getenv("CALL_STATUS_NOT_STARTED", "未开始"),
+    "IN_PROGRESS": os.getenv("CALL_STATUS_IN_PROGRESS", "进行中"),
+    "COMPLETED": os.getenv("CALL_STATUS_COMPLETED", "已完成"),
+    "FAILED": os.getenv("CALL_STATUS_FAILED", "失败")
+}
 
 class SizeDesc(BaseModel):
     """筛选条件"""
@@ -513,8 +522,8 @@ async def get_tasks(
             if task_id not in leads_by_task:
                 leads_by_task[task_id] = []
             
-            # 如果call_status为空，则返回"未开始"
-            call_status = lead['call_status'] if lead['call_status'] else "未开始"
+            # 如果call_status为空，则返回默认状态
+            call_status = lead['call_status'] if lead['call_status'] else CALL_STATUS_CONSTANTS["NOT_STARTED"]
             
             leads_by_task[task_id].append(TaskLeadsInfo(
                 leads_name=lead['leads_name'],

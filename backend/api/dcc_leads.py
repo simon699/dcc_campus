@@ -2,10 +2,17 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
+import os
 from database.db import execute_query
 from .auth import verify_access_token
 
 dcc_leads_router = APIRouter(tags=["线索管理"])
+
+# 系统常量配置
+ARRIVE_STATUS_CONSTANTS = {
+    "ARRIVED": os.getenv("ARRIVE_STATUS_ARRIVED", "已到店"),
+    "NOT_ARRIVED": os.getenv("ARRIVE_STATUS_NOT_ARRIVED", "未到店")
+}
 
 class LeadsFilter(BaseModel):
     """线索筛选条件"""
@@ -532,7 +539,7 @@ def _count_by_arrive(results: List[Dict]) -> List[LeadsCountItem]:
     for row in results:
         # 从跟进表中获取是否到店信息
         is_arrive = row.get('is_arrive', 0)  # 默认为0（未到店）
-        arrive_status = "已到店" if is_arrive == 1 else "未到店"
+        arrive_status = ARRIVE_STATUS_CONSTANTS["ARRIVED"] if is_arrive == 1 else ARRIVE_STATUS_CONSTANTS["NOT_ARRIVED"]
         leads_id = str(row['leads_id'])
         
         if arrive_status not in arrive_stats:

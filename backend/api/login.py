@@ -42,6 +42,80 @@ class RegisterResponse(BaseModel):
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
+# 获取或创建默认组织
+def get_or_create_default_organization():
+    """
+    获取或创建默认组织
+    如果默认组织不存在，则创建一个
+    返回默认组织的organization_id
+    """
+    try:
+        # 先尝试查找默认组织
+        default_org = execute_query(
+            "SELECT organization_id FROM organizations WHERE name = '默认组织' LIMIT 1"
+        )
+        
+        if default_org:
+            return default_org[0]['organization_id']
+        
+        # 如果默认组织不存在，创建一个
+        from datetime import datetime, timedelta
+        import random
+        import string
+        
+        # 生成唯一的组织ID
+        def generate_organization_id():
+            length = random.randint(6, 8)
+            characters = string.ascii_uppercase + string.digits
+            return ''.join(random.choice(characters) for _ in range(length))
+        
+        def is_organization_id_unique(org_id):
+            check_query = "SELECT COUNT(*) as count FROM organizations WHERE organization_id = %s"
+            result = execute_query(check_query, (org_id,))
+            return result[0]['count'] == 0
+        
+        def generate_unique_organization_id():
+            max_attempts = 100
+            for _ in range(max_attempts):
+                org_id = generate_organization_id()
+                if is_organization_id_unique(org_id):
+                    return org_id
+            raise Exception("无法生成唯一的组织ID，请重试")
+        
+        # 确保组织表存在
+        create_table_query = '''
+        CREATE TABLE IF NOT EXISTS organizations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL UNIQUE COMMENT '公司名称',
+            organization_id VARCHAR(20) NOT NULL UNIQUE COMMENT '组织ID',
+            organization_type INT NOT NULL COMMENT '组织类型，1:已认证；2:未认证',
+            create_time DATETIME NOT NULL COMMENT '创建时间',
+            end_time DATETIME NOT NULL COMMENT '到期时间'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='组织表';
+        '''
+        execute_update(create_table_query)
+        
+        # 生成唯一的组织ID
+        organization_id = generate_unique_organization_id()
+        
+        # 设置创建时间和到期时间（默认1年有效期）
+        create_time = datetime.now()
+        end_time = create_time + timedelta(days=365)
+        
+        # 插入默认组织
+        insert_query = '''
+        INSERT INTO organizations (name, organization_id, organization_type, create_time, end_time)
+        VALUES (%s, %s, %s, %s, %s)
+        '''
+        execute_update(insert_query, ('默认组织', organization_id, 2, create_time, end_time))
+        
+        return organization_id
+        
+    except Exception as e:
+        # 如果创建失败，返回一个默认值
+        print(f"创建默认组织失败: {str(e)}")
+        return "DEFAULT_ORG"
+
 # 注册接口
 @login_router.post("/register", response_model=RegisterResponse, description="用户注册")
 async def register(user: UserRegister):
@@ -92,10 +166,13 @@ async def register(user: UserRegister):
         # 获取当前时间
         create_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         
+        # 获取或创建默认组织
+        default_org_id = get_or_create_default_organization()
+        
         # 插入用户数据
         execute_update(
             "INSERT INTO users (username, password, phone, organization_id, create_time, user_role) VALUES (%s, %s, %s, %s, %s, %s)",
-            (user.username, hashed_password, user.phone, "DEFAULT_ORG", create_time, 2)
+            (user.username, hashed_password, user.phone, default_org_id, create_time, 2)
         )
         
         # 获取新用户信息

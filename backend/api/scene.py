@@ -21,6 +21,15 @@ EXTERNAL_API_CONFIG = {
     }
 }
 
+# 系统常量配置
+SYSTEM_CONSTANTS = {
+    "OFFICIAL_USER_ID": os.getenv("OFFICIAL_USER_ID", "official"),
+    "OFFICIAL_USER_NAME": os.getenv("OFFICIAL_USER_NAME", "官方"),
+    "OFFICIAL_ORG_ID": os.getenv("OFFICIAL_ORG_ID", "official"),
+    "DEFAULT_USER_NAME": os.getenv("DEFAULT_USER_NAME", "未知用户"),
+    "DEFAULT_ORG_NAME": os.getenv("DEFAULT_ORG_NAME", "未知组织")
+}
+
 # 请求模型
 class SceneTagRequest(BaseModel):
     tag_name: str = Field(..., description="标签名称")
@@ -98,10 +107,10 @@ def get_username_by_user_id(user_id: str) -> str:
         if user_result:
             return user_result[0]['username']
         else:
-            return "未知用户"
+            return SYSTEM_CONSTANTS["DEFAULT_USER_NAME"]
     except Exception as e:
         print(f"查询用户名失败: {str(e)}")
-        return "未知用户"
+        return SYSTEM_CONSTANTS["DEFAULT_USER_NAME"]
 
 def get_script_id_from_external_api() -> str:
     """从外部接口获取场景ID"""
@@ -170,18 +179,18 @@ async def create_scene(request: CreateSceneRequest, token: dict = Depends(verify
         
         # 获取用户信息
         user_id = token.get("user_id")
-        user_name = token.get("user_name", "未知用户")
+        user_name = token.get("user_name", SYSTEM_CONSTANTS["DEFAULT_USER_NAME"])
         org_id = token.get("org_id")
         
         # 如果有 user_id，调用用户表查询 username
-        if user_id and user_id != "official":
+        if user_id and user_id != SYSTEM_CONSTANTS["OFFICIAL_USER_ID"]:
             user_name = get_username_by_user_id(user_id)
         
         # 如果是官方场景，使用默认值
         if request.scene_type == 1:
-            user_id = "official"
-            user_name = "官方"
-            org_id = "official"
+            user_id = SYSTEM_CONSTANTS["OFFICIAL_USER_ID"]
+            user_name = SYSTEM_CONSTANTS["OFFICIAL_USER_NAME"]
+            org_id = SYSTEM_CONSTANTS["OFFICIAL_ORG_ID"]
         
         # 插入场景数据
         scene_sql = """
@@ -273,19 +282,19 @@ async def get_scenes(token: dict = Depends(verify_access_token)):
             # 确保必需字段不为None
             if scene_data.get("scene_create_user_id") is None:
                 if scene_data.get("scene_type") == 1:
-                    scene_data["scene_create_user_id"] = "official"
+                    scene_data["scene_create_user_id"] = SYSTEM_CONSTANTS["OFFICIAL_USER_ID"]
                 else:
                     scene_data["scene_create_user_id"] = "unknown"
             if scene_data.get("scene_create_user_name") is None:
                 if scene_data.get("scene_type") == 1:
-                    scene_data["scene_create_user_name"] = "官方"
+                    scene_data["scene_create_user_name"] = SYSTEM_CONSTANTS["OFFICIAL_USER_NAME"]
                 else:
-                    scene_data["scene_create_user_name"] = "未知用户"
+                    scene_data["scene_create_user_name"] = SYSTEM_CONSTANTS["DEFAULT_USER_NAME"]
             if scene_data.get("scene_create_org_id") is None:
                 if scene_data.get("scene_type") == 1:
-                    scene_data["scene_create_org_id"] = "官方"
+                    scene_data["scene_create_org_id"] = SYSTEM_CONSTANTS["OFFICIAL_ORG_ID"]
                 else:
-                    scene_data["scene_create_org_id"] = "未知组织"
+                    scene_data["scene_create_org_id"] = SYSTEM_CONSTANTS["DEFAULT_ORG_NAME"]
             
             # 将datetime对象转换为字符串
             if isinstance(scene_data.get("scene_create_time"), datetime):
