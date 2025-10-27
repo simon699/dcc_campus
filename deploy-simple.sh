@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# DCC数字员工系统 - 服务器快速部署脚本
-# 专门用于解决Python环境管理问题
+# DCC数字员工系统 - 简化部署脚本
+# 完全避免Python网络问题
 
 set -e
 
-echo "🚀 DCC数字员工系统 - 服务器快速部署"
+echo "🚀 DCC数字员工系统 - 简化部署"
 echo "================================================"
 
 # 颜色定义
@@ -70,24 +70,54 @@ check_env() {
     log_success "环境变量配置检查通过"
 }
 
-# 初始化数据库（使用MySQL客户端）
-init_database_mysql() {
-    log_info "使用MySQL客户端初始化RDS数据库..."
+# 初始化数据库
+init_database() {
+    log_info "初始化RDS数据库..."
     
-    # 检查是否有MySQL客户端脚本
-    if [ -f "init-database-mysql.sh" ]; then
-        ./init-database-mysql.sh
-    else
-        log_error "未找到MySQL客户端初始化脚本"
-        exit 1
-    fi
+    # 加载环境变量
+    source .env
+    
+    # 使用Docker MySQL客户端创建数据库
+    log_info "创建数据库..."
+    docker run --rm --network host mysql:8.0 mysql \
+        -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" \
+        -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null
     
     if [ $? -eq 0 ]; then
-        log_success "数据库初始化完成"
+        log_success "数据库 $DB_NAME 创建成功"
     else
-        log_error "数据库初始化失败"
+        log_error "数据库创建失败"
         exit 1
     fi
+    
+    # 创建表结构
+    log_info "创建表结构..."
+    sql_files=(
+        "backend/database/01_create_tables.sql"
+        "backend/database/02_call_tasks.sql"
+        "backend/database/03_auto_call_tables.sql"
+        "backend/database/04_dcc_leads.sql"
+    )
+    
+    for sql_file in "${sql_files[@]}"; do
+        if [ -f "$sql_file" ]; then
+            log_info "执行SQL文件: $sql_file"
+            docker run --rm --network host -v "$(pwd):/data" mysql:8.0 mysql \
+                -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" \
+                < "/data/$sql_file" 2>/dev/null
+            
+            if [ $? -eq 0 ]; then
+                log_success "$sql_file 执行完成"
+            else
+                log_error "$sql_file 执行失败"
+                exit 1
+            fi
+        else
+            log_warning "SQL文件不存在: $sql_file"
+        fi
+    done
+    
+    log_success "数据库初始化完成"
 }
 
 # 部署应用
@@ -167,7 +197,7 @@ main() {
     
     check_docker
     check_env
-    init_database_mysql
+    init_database
     deploy_app
     verify_deployment
     
