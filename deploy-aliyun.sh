@@ -157,10 +157,10 @@ check_project_files() {
     log_info "检查项目文件..."
     
     # 检查是否在正确的项目目录
-    if [[ ! "$(pwd)" == "/opt/dcc_campus" ]]; then
-        log_error "请在项目根目录 /opt/dcc_campus 下运行此脚本"
+    if [[ ! "$(pwd)" == "/opt/dcc_campus/dcc_campus" ]]; then
+        log_error "请在项目根目录 /opt/dcc_campus/dcc_campus 下运行此脚本"
         log_info "当前目录: $(pwd)"
-        log_info "请执行: cd /opt/dcc_campus && ./deploy-aliyun.sh"
+        log_info "请执行: cd /opt/dcc_campus/dcc_campus && ./deploy-aliyun.sh"
         exit 1
     fi
     
