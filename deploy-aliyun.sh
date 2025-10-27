@@ -263,9 +263,9 @@ init_database() {
     for sql_file in "${sql_files[@]}"; do
         if [ -f "$sql_file" ]; then
             log_info "执行SQL文件: $sql_file"
-            docker run --rm --network host -v "$(pwd):/data" mysql:8.0 mysql \
-                -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" \
-                < "/data/$sql_file" 2>/dev/null
+            # 使用cat命令将SQL文件内容传递给mysql命令
+            cat "$sql_file" | docker run --rm --network host -i mysql:8.0 mysql \
+                -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" 2>/dev/null
             
             if [ $? -eq 0 ]; then
                 log_success "$sql_file 执行完成"

@@ -38,7 +38,7 @@ DCC数字员工系统是一个智能化的客户关系管理平台，集成了�
    ssh user@your-server
    
    # 进入项目目录
-   cd /opt/dcc_campus
+   cd /opt/dcc_campus/dcc_campus
    
    # 执行部署脚本
    ./deploy-aliyun.sh

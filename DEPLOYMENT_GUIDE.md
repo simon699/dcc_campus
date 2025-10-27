@@ -18,7 +18,7 @@
    git clone <your-repository-url> /opt/dcc_campus
    
    # 进入项目目录
-   cd /opt/dcc_campus
+   cd /opt/dcc_campus/dcc_campus
    ```
 
 2. **配置环境变量**
