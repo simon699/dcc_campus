@@ -41,7 +41,7 @@ pull_image() {
     while [ $retry_count -lt $max_retries ]; do
         log_info "拉取镜像: $image (尝试 $((retry_count + 1))/$max_retries)"
         
-        if timeout 300 docker pull "$image"; then
+        if docker pull "$image"; then
             log_success "✓ $image 拉取成功"
             return 0
         else
@@ -55,12 +55,12 @@ pull_image() {
     return 1
 }
 
-# 镜像列表（使用测试确认可用的版本）
+# 镜像列表（使用确认可用的版本）
 images=(
-    "registry.cn-hangzhou.aliyuncs.com/library/python:3.10-slim"
+    "python:3.10-slim"
     "node:lts-alpine"
-    "registry.cn-hangzhou.aliyuncs.com/library/nginx:alpine"
-    "registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0"
+    "nginx:alpine"
+    "mysql:8.0"
 )
 
 log_info "开始预拉取Docker镜像..."

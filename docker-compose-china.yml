@@ -59,7 +59,7 @@ services:
 
   # Nginx反向代理
   nginx:
-    image: registry.cn-hangzhou.aliyuncs.com/library/nginx:alpine
+    image: nginx:alpine
     container_name: dcc-nginx
     restart: always
     ports:
