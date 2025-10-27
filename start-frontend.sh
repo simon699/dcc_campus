@@ -67,7 +67,7 @@ sleep 5
 # 检查服务状态
 if ps -p $FRONTEND_PID > /dev/null; then
     log_success "前端服务启动成功 (PID: $FRONTEND_PID)"
-    log_info "前端服务运行在: http://localhost:3000"
+    log_info "前端服务运行在: http://localhost:3001"
     log_info "日志文件: ../frontend.log"
 else
     log_error "前端服务启动失败"
