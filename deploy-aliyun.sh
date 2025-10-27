@@ -307,7 +307,7 @@ deploy_app() {
     # 先拉取基础镜像
     log_info "预拉取基础镜像..."
     docker pull registry.cn-hangzhou.aliyuncs.com/library/python:3.10-slim || true
-    docker pull node:20-alpine || true
+    docker pull node:lts-alpine || true
     docker pull registry.cn-hangzhou.aliyuncs.com/library/nginx:alpine || true
     
     # 构建镜像，增加超时时间

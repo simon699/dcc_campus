@@ -1,5 +1,5 @@
-# 使用Node.js 20作为基础镜像（更稳定的版本）
-FROM node:20-alpine AS base
+# 使用Node.js LTS版本作为基础镜像（测试确认可用）
+FROM node:lts-alpine AS base
 
 # 安装依赖阶段
 FROM base AS deps

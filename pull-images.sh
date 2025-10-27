@@ -55,10 +55,10 @@ pull_image() {
     return 1
 }
 
-# 镜像列表（使用稳定版本）
+# 镜像列表（使用测试确认可用的版本）
 images=(
     "registry.cn-hangzhou.aliyuncs.com/library/python:3.10-slim"
-    "node:20-alpine"
+    "node:lts-alpine"
     "registry.cn-hangzhou.aliyuncs.com/library/nginx:alpine"
     "registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0"
 )
