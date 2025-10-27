@@ -22,7 +22,34 @@ DCC数字员工系统是一个智能化的客户关系管理平台，集成了�
 
 ## 🚀 快速部署
 
-### 阿里云部署
+### 方式1：直接运行部署（推荐）
+
+1. **准备环境**
+   - 阿里云ECS服务器（Ubuntu 20.04+）
+   - 阿里云RDS MySQL数据库
+   - 配置好.env环境变量文件
+
+2. **执行部署**
+   ```bash
+   # 上传项目到服务器
+   git clone <repository-url> /opt/dcc_campus
+   
+   # 登录服务器
+   ssh user@your-server
+   
+   # 进入项目目录
+   cd /opt/dcc_campus/dcc_campus
+   
+   # 执行直接运行部署（自动安装所有依赖）
+   ./deploy-ecs-direct.sh
+   ```
+
+3. **访问系统**
+   - 主站: `http://campus.kongbaijiyi.com`
+   - API文档: `http://campus.kongbaijiyi.com/docs`
+   - 健康检查: `http://campus.kongbaijiyi.com/api/health`
+
+### 方式2：Docker部署
 
 1. **准备环境**
    - 阿里云ECS服务器（Ubuntu 20.04+）
