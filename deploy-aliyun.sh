@@ -300,9 +300,9 @@ deploy_app() {
     # 构建镜像（使用国内镜像源）
     log_info "构建Docker镜像（使用国内镜像源）..."
     
-    # 设置Docker构建超时和重试
-    export DOCKER_BUILDKIT=1
-    export COMPOSE_DOCKER_CLI_BUILD=1
+    # 设置Docker构建配置（禁用BuildKit避免兼容性问题）
+    export DOCKER_BUILDKIT=0
+    export COMPOSE_DOCKER_CLI_BUILD=0
     
     # 先拉取基础镜像
     log_info "预拉取基础镜像..."
@@ -310,8 +310,8 @@ deploy_app() {
     docker pull node:lts-alpine || true
     docker pull nginx:alpine || true
     
-    # 构建镜像，增加超时时间
-    timeout 1800 docker-compose -f docker-compose-china.yml build --no-cache --parallel
+    # 构建镜像，使用传统构建方式
+    docker-compose -f docker-compose-china.yml build --no-cache
     
     # 启动服务
     log_info "启动服务..."
