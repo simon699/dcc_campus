@@ -155,9 +155,14 @@ install_frontend_deps() {
     # 安装前端依赖
     cd dcc-digital-employee
     npm install
+    
+    # 构建前端生产版本
+    log_info "构建前端生产版本..."
+    npm run build
+    
     cd ..
     
-    log_success "前端依赖安装完成"
+    log_success "前端依赖安装和构建完成"
 }
 
 # 检查环境变量
