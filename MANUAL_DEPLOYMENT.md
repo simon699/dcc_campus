@@ -13,7 +13,7 @@
 cat .env | grep DB_
 
 # 确保包含：
-# DB_HOST=yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com
+# DB_HOST=rm-uf659mlhqay324l92.mysql.rds.aliyuncs.com
 # DB_PORT=3306
 # DB_USER=dcc_user
 # DB_PASSWORD=您的实际密码
@@ -25,7 +25,7 @@ cat .env | grep DB_
 ```bash
 # 1. 创建数据库
 docker run --rm --network host mysql:8.0 mysql \
-  -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com \
+  -h rm-uf659mlhqay324l92.mysql.rds.aliyuncs.com \
   -P 3306 \
   -u dcc_user \
   -p您的密码 \
@@ -33,28 +33,28 @@ docker run --rm --network host mysql:8.0 mysql \
 
 # 2. 创建表结构
 docker run --rm --network host -v $(pwd):/data mysql:8.0 mysql \
-  -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com \
+  -h rm-uf659mlhqay324l92.mysql.rds.aliyuncs.com \
   -P 3306 \
   -u dcc_user \
   -p您的密码 \
   dcc_employee_db < /data/backend/database/01_create_tables.sql
 
 docker run --rm --network host -v $(pwd):/data mysql:8.0 mysql \
-  -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com \
+  -h rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com \
   -P 3306 \
   -u dcc_user \
   -p您的密码 \
   dcc_employee_db < /data/backend/database/02_call_tasks.sql
 
 docker run --rm --network host -v $(pwd):/data mysql:8.0 mysql \
-  -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com \
+  -h rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com \
   -P 3306 \
   -u dcc_user \
   -p您的密码 \
   dcc_employee_db < /data/backend/database/03_auto_call_tables.sql
 
 docker run --rm --network host -v $(pwd):/data mysql:8.0 mysql \
-  -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com \
+  -h rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com \
   -P 3306 \
   -u dcc_user \
   -p您的密码 \
@@ -108,10 +108,10 @@ docker-compose logs -f
 **测试RDS连接：**
 ```bash
 # 使用telnet测试端口
-telnet yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com 3306
+telnet rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com 3306
 
 # 使用nc测试
-nc -zv yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com 3306
+nc -zv rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com 3306
 ```
 
 **检查RDS安全组：**
@@ -148,10 +148,10 @@ docker-compose restart
 **检查网络连接：**
 ```bash
 # 检查DNS解析
-nslookup yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com
+nslookup rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com
 
 # 检查路由
-traceroute yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com
+traceroute rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com
 ```
 
 ## 快速部署命令

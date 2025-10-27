@@ -46,16 +46,16 @@
 
 ```bash
 # 1. 测试连接
-mysql -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p
+mysql -h rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p
 
 # 2. 创建数据库
-mysql -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p -e "CREATE DATABASE IF NOT EXISTS dcc_employee_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -h rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p -e "CREATE DATABASE IF NOT EXISTS dcc_employee_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
 # 3. 创建表结构
-mysql -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p dcc_employee_db < backend/database/01_create_tables.sql
-mysql -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p dcc_employee_db < backend/database/02_call_tasks.sql
-mysql -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p dcc_employee_db < backend/database/03_auto_call_tables.sql
-mysql -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p dcc_employee_db < backend/database/04_dcc_leads.sql
+mysql -h rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p dcc_employee_db < backend/database/01_create_tables.sql
+mysql -h rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p dcc_employee_db < backend/database/02_call_tasks.sql
+mysql -h rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p dcc_employee_db < backend/database/03_auto_call_tables.sql
+mysql -h rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p dcc_employee_db < backend/database/04_dcc_leads.sql
 ```
 
 ## 完整部署流程
@@ -67,7 +67,7 @@ mysql -h yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com -P 3306 -u dcc_user -p dcc
 cat .env | grep DB_
 
 # 应该看到：
-# DB_HOST=yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com
+# DB_HOST=rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com
 # DB_PORT=3306
 # DB_USER=dcc_user
 # DB_PASSWORD=您的实际密码
@@ -122,10 +122,10 @@ docker-compose logs -f
 **测试连接：**
 ```bash
 # 使用telnet测试端口
-telnet yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com 3306
+telnet rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com 3306
 
 # 使用nc测试
-nc -zv yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com 3306
+nc -zv rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com 3306
 ```
 
 ### 2. 网络问题
@@ -133,10 +133,10 @@ nc -zv yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com 3306
 **检查网络连接：**
 ```bash
 # 检查DNS解析
-nslookup yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com
+nslookup rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com
 
 # 检查路由
-traceroute yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com
+traceroute rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com
 ```
 
 ### 3. 权限问题

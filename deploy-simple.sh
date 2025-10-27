@@ -57,7 +57,7 @@ check_env() {
     fi
     
     # 检查关键配置
-    if ! grep -q "DB_HOST=yrm-" .env; then
+    if ! grep -q "DB_HOST=.*\.mysql\.rds\.aliyuncs\.com" .env; then
         log_error "请确保.env文件中配置了正确的RDS地址"
         exit 1
     fi

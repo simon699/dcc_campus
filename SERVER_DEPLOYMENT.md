@@ -34,7 +34,7 @@ nano .env
 
 ```bash
 # 数据库配置（阿里云RDS）
-DB_HOST=yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com
+DB_HOST=rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com
 DB_PORT=3306
 DB_USER=dcc_user
 DB_PASSWORD=您的实际RDS密码
@@ -188,7 +188,7 @@ with get_connection() as conn:
 "
 
 # 检查网络连通性
-docker-compose exec backend ping yrm-uf659mlhqay324l92.mysql.rds.aliyuncs.com
+docker-compose exec backend ping rm-uf659mlhqay324l921o.mysql.rds.aliyuncs.com
 ```
 
 ## 管理命令
