@@ -60,7 +60,7 @@ class Sample:
             # 将策略JSON转换为字符串
             import json
             dic = {
-                "maxAttemptsPerDay":3, #每日最多尝试呼叫次数，必传
+                "maxAttemptsPerDay":1, #每日最多尝试呼叫次数，必传
                 "minAttemptInterval":120, #未接通重试间隔时间，单位分钟，必传
                 "RepeatBy":"once", #once不指定。week每周重复，month每月重复，不传该字段默认是立即执行，如果为立即执行，则下面的字段都可以不上传；
             }

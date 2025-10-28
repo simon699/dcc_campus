@@ -60,9 +60,6 @@ git push dcc_campus main
 - 配置文件语法错误
 
 
-
-
-
 **解决**：
 ```bash
 # 确认当前分支
