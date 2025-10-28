@@ -269,8 +269,7 @@ async def create_auto_call_task(
         if hasattr(request.size_desc, 'next_follow_ranges') and request.size_desc.next_follow_ranges:
             size_desc_dict['next_follow_ranges'] = request.size_desc.next_follow_ranges
         
-        # 启动自动检查任务
-        asyncio.create_task(start_auto_check_after_creation(task_id))
+        # 取消：创建后立即检查。首次检查改在 start-call-task 成功后触发
         
         return {
             "status": "success",
@@ -821,7 +820,9 @@ async def start_call_task(
                 None,
                 task_info['script_id']
             )
-            
+            # 防御式校验，避免 None 访问属性
+            if not job_group or not getattr(job_group, 'job_group_id', None):
+                raise RuntimeError("创建任务组返回为空或缺少 job_group_id")
             job_group_id = job_group.job_group_id
             
         except Exception as e:
@@ -922,6 +923,9 @@ async def start_call_task(
                     "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
             }
+            
+            # 注意：在成功返回前异步触发首次检查（含2秒延迟）
+            asyncio.create_task(start_auto_check_after_creation(request.task_id))
         
     except HTTPException:
         raise
@@ -1203,6 +1207,39 @@ async def query_task_execution(
                     affected_rows = execute_update(update_query, update_params)
                     print(f"数据库更新成功 - job_id: {job_id}, 影响行数: {affected_rows}")
                     updated_count += 1
+
+                    # 仅首次需要时触发AI：需满足有会话 且 is_interested 为 NULL 且 leads_follow_id 为 NULL
+                    if conversation:
+                        try:
+                            guard_rows = execute_query(
+                                """
+                                SELECT is_interested, leads_follow_id
+                                FROM leads_task_list
+                                WHERE task_id = %s AND call_job_id = %s
+                                """,
+                                (request.task_id, job_id)
+                            )
+                            needs_ai = False
+                            if guard_rows:
+                                needs_ai = (
+                                    guard_rows[0].get('is_interested') is None and
+                                    guard_rows[0].get('leads_follow_id') is None
+                                )
+                            if needs_ai:
+                                def run_ai_follow():
+                                    try:
+                                        print(f"[bg-ai] start job_id={job_id}")
+                                        get_leads_follow_id(job_id)
+                                        print(f"[bg-ai] done job_id={job_id}")
+                                    except Exception as e:
+                                        print(f"[bg-ai] failed job_id={job_id}, err={str(e)}")
+                                ai_thread = threading.Thread(target=run_ai_follow)
+                                ai_thread.daemon = True
+                                ai_thread.start()
+                        except Exception:
+                            pass
+
+                    # 同步接口不再直接触发AI；由异步跟进线程首次执行
                     
                 except Exception as e:
                     error_count += 1
@@ -1350,7 +1387,267 @@ async def query_task_execution(
 
 
 
-def get_leads_follow_id(call_job_id):
+# ---- 后台运行：分批查询执行（run_id 模式） ----
+class StartExecutionRunRequest(BaseModel):
+    """启动后台执行运行"""
+    task_id: int
+    batch_size: int = 100  # 每批处理 job 数量
+    sleep_ms: int = 200    # 批间 sleep 毫秒
+    skip_recording: bool = True  # 后台是否下载录音（默认否）
+
+
+class StartExecutionRunResponse(BaseModel):
+    status: str
+    code: int
+    message: str
+    data: Dict[str, Any]
+
+
+class GetExecutionRunRequest(BaseModel):
+    run_id: int
+
+
+class GetExecutionRunResponse(BaseModel):
+    status: str
+    code: int
+    message: str
+    data: Dict[str, Any]
+
+
+def _ensure_execution_runs_table():
+    """确保运行记录表存在。"""
+    create_sql = """
+    CREATE TABLE IF NOT EXISTS call_task_execution_runs (
+        id SERIAL PRIMARY KEY,
+        task_id INT NOT NULL,
+        params JSON NULL,
+        status VARCHAR(32) NOT NULL,
+        total_jobs INT DEFAULT 0,
+        processed_jobs INT DEFAULT 0,
+        error TEXT NULL,
+        created_at TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP NOT NULL
+    )
+    """
+    try:
+        execute_update(create_sql)
+    except Exception:
+        pass
+
+
+def _update_run_progress(run_id: int, *, processed: int = None, status: str = None, error: str = None, total: int = None):
+    sets = []
+    params: list[Any] = []
+    if processed is not None:
+        sets.append("processed_jobs = %s")
+        params.append(processed)
+    if status is not None:
+        sets.append("status = %s")
+        params.append(status)
+    if error is not None:
+        sets.append("error = %s")
+        params.append(error)
+    if total is not None:
+        sets.append("total_jobs = %s")
+        params.append(total)
+    sets.append("updated_at = %s")
+    params.append(datetime.now())
+    if not sets:
+        return
+    sql = f"UPDATE call_task_execution_runs SET {', '.join(sets)} WHERE id = %s"
+    params.append(run_id)
+    execute_update(sql, tuple(params))
+
+
+def _background_execute_run(run_id: int, task_id: int, batch_size: int, sleep_ms: int, skip_recording: bool):
+    """后台线程：分批 list_jobs 并入库更新。"""
+    try:
+        # 取得该任务的待处理 job_ids
+        job_rows = execute_query(
+            """
+            SELECT call_job_id
+            FROM leads_task_list
+            WHERE task_id = %s AND call_job_id IS NOT NULL AND call_job_id != ''
+            ORDER BY id
+            """,
+            (task_id,)
+        )
+        job_ids = [r['call_job_id'] for r in job_rows]
+        _update_run_progress(run_id, total=len(job_ids), status="running", processed=0)
+
+        # 动态导入 OpenAPI
+        import sys as _sys, os as _os
+        _sys.path.append(_os.path.join(_os.path.dirname(__file__), '..', 'openAPI'))
+        from list_jobs import Sample as ListJobsSample  # type: ignore
+        from download_recording import Sample as DownloadRecordingSample  # type: ignore
+
+        processed = 0
+        for i in range(0, len(job_ids), max(1, batch_size)):
+            batch = job_ids[i:i + batch_size]
+            try:
+                jobs_data = ListJobsSample.main([], job_ids=batch)
+            except Exception as e:
+                _update_run_progress(run_id, status="running", error=f"list_jobs失败: {str(e)}")
+                jobs_data = []
+
+            # 入库更新（与 query_task_execution 的写法一致，精简录音下载）
+            for job_data in jobs_data or []:
+                job_id = job_data.get('JobId')
+                tasks = job_data.get('Tasks', [])
+                job_status = job_data.get('Status', '')
+                if not tasks:
+                    continue
+                last_task = tasks[-1]
+                planned_time = last_task.get('PlanedTime')
+                call_task_id = last_task.get('TaskId', '')
+                conversation = last_task.get('Conversation', '')
+                calling_number = last_task.get('CallingNumber', '')
+
+                plan_time = None
+                if planned_time:
+                    try:
+                        plan_time = datetime.fromtimestamp(int(planned_time) / 1000)
+                    except:
+                        plan_time = None
+
+                current_recording_url = None
+                if job_status == 'Succeeded':
+                    try:
+                        rec = execute_query(
+                            """
+                            SELECT recording_url FROM leads_task_list
+                            WHERE task_id = %s AND call_job_id = %s
+                            """,
+                            (task_id, job_id)
+                        )
+                        if rec:
+                            current_recording_url = rec[0].get('recording_url')
+                    except Exception:
+                        pass
+
+                recording_url = None
+                if (not skip_recording) and call_task_id and job_status == 'Succeeded':
+                    try:
+                        new_url = DownloadRecordingSample.main([], task_id=call_task_id)
+                        if new_url:
+                            recording_url = new_url
+                        elif current_recording_url:
+                            recording_url = current_recording_url
+                    except Exception:
+                        if current_recording_url:
+                            recording_url = current_recording_url
+                else:
+                    recording_url = current_recording_url
+
+                try:
+                    execute_update(
+                        """
+                        UPDATE leads_task_list
+                        SET call_status = %s,
+                            planed_time = %s,
+                            call_task_id = %s,
+                            call_conversation = %s,
+                            calling_number = %s,
+                            recording_url = %s
+                        WHERE task_id = %s AND call_job_id = %s
+                        """,
+                        (
+                            job_status,
+                            plan_time,
+                            call_task_id,
+                            json.dumps(conversation) if conversation else None,
+                            calling_number,
+                            recording_url,
+                            task_id,
+                            job_id,
+                        )
+                    )
+                except Exception:
+                    pass
+
+                # 后台批处理也不在此处直接触发AI；AI在首次生成跟进时机由异步线程负责
+
+            processed += len(batch)
+            _update_run_progress(run_id, processed=processed)
+
+            # 批间 sleep
+            try:
+                import time as _time
+                _time.sleep(max(0, sleep_ms) / 1000.0)
+            except Exception:
+                pass
+
+        _update_run_progress(run_id, status="done")
+    except Exception as e:
+        _update_run_progress(run_id, status="failed", error=str(e))
+
+
+@auto_call_router.post("/start-query-execution-run", response_model=StartExecutionRunResponse)
+async def start_query_execution_run(
+    request: StartExecutionRunRequest,
+    token: Dict[str, Any] = Depends(verify_access_token)
+):
+    """创建一个后台运行并立即返回 run_id。"""
+    # 鉴权+任务归属校验
+    user_id = token.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail={"status":"error","code":1003,"message":"令牌中缺少用户ID信息"})
+
+    task = execute_query("SELECT id FROM call_tasks WHERE id=%s", (request.task_id,))
+    if not task:
+        raise HTTPException(status_code=404, detail={"status":"error","code":4004,"message":"任务不存在"})
+
+    _ensure_execution_runs_table()
+
+    # 创建 run 记录
+    params = {
+        "batch_size": request.batch_size,
+        "sleep_ms": request.sleep_ms,
+        "skip_recording": request.skip_recording,
+    }
+    run_id = execute_update(
+        """
+        INSERT INTO call_task_execution_runs(task_id, params, status, total_jobs, processed_jobs, error, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (request.task_id, json.dumps(params), "pending", 0, 0, None, datetime.now(), datetime.now())
+    )
+
+    # 启动后台线程
+    def _runner():
+        _background_execute_run(run_id, request.task_id, request.batch_size, request.sleep_ms, request.skip_recording)
+
+    t = threading.Thread(target=_runner)
+    t.daemon = True
+    t.start()
+
+    return {
+        "status": "success",
+        "code": 200,
+        "message": "运行已启动",
+        "data": {"run_id": run_id}
+    }
+
+
+@auto_call_router.get("/get-query-execution-run", response_model=GetExecutionRunResponse)
+async def get_query_execution_run(
+    run_id: int,
+    token: Dict[str, Any] = Depends(verify_access_token)
+):
+    """查询运行进度。"""
+    _ensure_execution_runs_table()
+    rows = execute_query("SELECT * FROM call_task_execution_runs WHERE id=%s", (run_id,))
+    if not rows:
+        raise HTTPException(status_code=404, detail={"status":"error","code":4004,"message":"run_id不存在"})
+    row = rows[0]
+    return {
+        "status": "success",
+        "code": 200,
+        "message": "ok",
+        "data": row
+    }
+
+def get_leads_follow_id(call_job_id, *, force: bool = False, dry_run: bool = False):
     """
     根据call_job_id获取通话记录，调用AI接口分析，并保存跟进记录
     
@@ -1384,39 +1681,24 @@ def get_leads_follow_id(call_job_id):
         leads_phone = task_data.get('leads_phone')
         leads_follow_id = task_data.get('leads_follow_id')
         call_status = task_data.get('call_status')
+        has_conversation = bool(call_conversation)
+        try:
+            # 额外调试信息，方便定位为何没有打印 prompt
+            print(f"[get_leads_follow_id] call_job_id={call_job_id}, leads_id={leads_id}, call_status={call_status}, has_conversation={has_conversation}, leads_follow_id={leads_follow_id}")
+        except Exception:
+            pass
         
-        # 检查leads_follow_id是否已存在
-        if leads_follow_id is not None:
-            return {
-                "status": "error",
-                "code": 4003,
-                "message": f"call_job_id为{call_job_id}的记录已存在跟进记录，无需重复创建"
-            }
+        # 不再直接返回：若已有跟进但存在会话，将允许走AI并更新原有跟进
         
         # 检查任务状态，如果 Status = Failed，使用固定跟进内容
-        if call_status == 'Failed':
-            # 使用固定的跟进内容
-            leads_remark = "客户未接电话，未打通；"
-            next_follow_time = None
-            is_interested = 0
-        else:
-            # 检查是否有通话记录
-            if not call_conversation:
-                return {
-                    "status": "error", 
-                    "code": 4002,
-                    "message": f"call_job_id为{call_job_id}的记录中没有通话记录"
-                }
-            
-            # 2. 将call_conversation作为prompt调用AI接口
+        # 优先使用会话：若存在 call_conversation，无论 call_status，都走AI分析；否则按失败/无会话规则
+        if call_conversation:
             try:
-                # 如果call_conversation是JSON字符串，需要解析
                 if isinstance(call_conversation, str):
                     conversation_data = json.loads(call_conversation)
                 else:
                     conversation_data = call_conversation
                 
-                # 构建prompt
                 prompt = f"""
                 请分析以下汽车销售通话记录，并返回JSON格式的分析结果：
                 
@@ -1430,113 +1712,169 @@ def get_leads_follow_id(call_job_id):
                     "is_interested": 意向判断结果
                 }}
                 
-                意向判断规则：
+                意向判断规则（必须返回数字，不要返回布尔值）：
                 - 如果无法判断客户意向，返回0
                 - 如果客户有意向，返回1
                 - 如果客户无意向，返回2
                 """
-                
-                # 调用AI接口
+                print(f"prompt: {prompt}")
                 ai_response = ali_bailian_api(prompt)
-                
-                # 解析AI返回的JSON
+                print(f"AI返回: {ai_response}")
                 try:
-                    # 处理AI返回的Markdown代码块格式
                     ai_response_clean = ai_response.strip()
                     if ai_response_clean.startswith('```json'):
-                        # 移除开头的 ```json
                         ai_response_clean = ai_response_clean[7:]
                     if ai_response_clean.endswith('```'):
-                        # 移除结尾的 ```
                         ai_response_clean = ai_response_clean[:-3]
-                    
-                    # 清理可能的换行符和多余空格
                     ai_response_clean = ai_response_clean.strip()
-                    
                     ai_result = json.loads(ai_response_clean)
                     leads_remark = ai_result.get('leads_remark', '')
                     next_follow_time_str = ai_result.get('next_follow_time', '')
                     raw_is_interested = ai_result.get('is_interested', 0)
-
-                    # 规范化 is_interested 到 0/1/2
                     def normalize_interest(value):
                         if isinstance(value, int):
                             return value if value in (0, 1, 2) else 0
+                        if isinstance(value, bool):
+                            return 1 if value else 2
                         if isinstance(value, str):
                             v = value.strip().lower()
                             if v in ('0', '未知', '不确定', '无法判断'):
                                 return 0
-                            if v in ('1', '有意', '有意向'):
+                            if v in ('1', 'true', '有意', '有意向'):
                                 return 1
-                            if v in ('2', '无意', '无意向', '没意向', '没有意向'):
+                            if v in ('2', 'false', '无意', '无意向', '没意向', '没有意向'):
                                 return 2
                         return 0
-
                     is_interested = normalize_interest(raw_is_interested)
-                    
-                    
-                    # 解析下次跟进时间
                     next_follow_time = None
                     if next_follow_time_str:
                         try:
                             next_follow_time = datetime.strptime(next_follow_time_str, '%Y-%m-%d %H:%M:%S')
                         except:
-                            # 如果时间格式不正确，设置为当前时间加1天
                             next_follow_time = datetime.now()
-                    
                 except json.JSONDecodeError:
-                    # 如果AI返回的不是标准JSON，使用默认值
                     leads_remark = "AI分析结果解析失败，需要人工跟进"
                     next_follow_time = datetime.now()
                     is_interested = 0
-                    
             except Exception as e:
-                # AI调用失败，使用默认值
                 leads_remark = f"AI分析失败: {str(e)}，需要人工跟进"
                 next_follow_time = datetime.now()
                 is_interested = 0
+        else:
+            # 无会话：若失败则固定备注，否则返回缺少会话
+            if call_status == 'Failed':
+                leads_remark = "客户未接电话，未打通；"
+                next_follow_time = None
+                is_interested = 0
+                try:
+                    print(f"[get_leads_follow_id] 无会话但通话失败：call_job_id={call_job_id}")
+                except Exception:
+                    pass
+            else:
+                # 无会话且非 Failed：改为创建“待人工”跟进，避免流程卡住
+                leads_remark = "缺少通话记录，待人工判定；"
+                next_follow_time = None
+                is_interested = 0
         
-        # 3. 将数据写入dcc_leads_follow表
-        insert_query = """
-            INSERT INTO dcc_leads_follow 
-            (leads_id, follow_time, leads_remark, frist_follow_time, new_follow_time, next_follow_time)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        
+        # 3. dry_run 时仅返回不入库；否则按原逻辑入库
         current_time = datetime.now()
-        follow_id = execute_update(insert_query, (
-            leads_id,
-            current_time,
-            leads_remark,
-            current_time,
-            current_time,
-            next_follow_time
-        ))
-        
-        # 4. 更新leads_task_list表中的leads_follow_id和is_interested
-        update_query = """
-            UPDATE leads_task_list 
-            SET leads_follow_id = %s, is_interested = %s
-            WHERE call_job_id = %s
-        """
-        
-        execute_update(update_query, (follow_id, is_interested, call_job_id))
-        
-        return {
-            "status": "success",
-            "code": 200,
-            "message": "跟进记录创建成功",
-            "data": {
-                "follow_id": follow_id,
-                "leads_id": leads_id,
-                "leads_name": leads_name,
-                "leads_phone": leads_phone,
-                "leads_remark": leads_remark,
-                "is_interested": is_interested,
-                "next_follow_time": next_follow_time.strftime('%Y-%m-%d %H:%M:%S') if next_follow_time else None,
-                "create_time": current_time.strftime('%Y-%m-%d %H:%M:%S')
+        if dry_run:
+            try:
+                print(f"[force-analyze] dry_run call_job_id={call_job_id}, leads_id={leads_id}, is_interested={is_interested}, leads_remark={leads_remark}, next_follow_time={next_follow_time}")
+            except Exception:
+                pass
+            return {
+                "status": "success",
+                "code": 200,
+                "message": "分析成功（未入库）",
+                "data": {
+                    "follow_id": None,
+                    "leads_id": leads_id,
+                    "leads_name": leads_name,
+                    "leads_phone": leads_phone,
+                    "leads_remark": leads_remark,
+                    "is_interested": is_interested,
+                    "next_follow_time": next_follow_time.strftime('%Y-%m-%d %H:%M:%S') if next_follow_time else None,
+                    "create_time": current_time.strftime('%Y-%m-%d %H:%M:%S')
+                }
             }
-        }
+        else:
+            # 若已有跟进记录则更新，否则插入
+            if leads_follow_id:
+                update_follow_query = """
+                    UPDATE dcc_leads_follow
+                    SET leads_remark = %s,
+                        new_follow_time = %s,
+                        next_follow_time = %s
+                    WHERE id = %s
+                """
+                execute_update(update_follow_query, (
+                    leads_remark,
+                    current_time,
+                    next_follow_time,
+                    leads_follow_id
+                ))
+                # 同步更新任务表意向
+                update_list_query = """
+                    UPDATE leads_task_list
+                    SET is_interested = %s
+                    WHERE call_job_id = %s
+                """
+                execute_update(update_list_query, (is_interested, call_job_id))
+                return {
+                    "status": "success",
+                    "code": 200,
+                    "message": "跟进记录更新成功",
+                    "data": {
+                        "follow_id": leads_follow_id,
+                        "leads_id": leads_id,
+                        "leads_name": leads_name,
+                        "leads_phone": leads_phone,
+                        "leads_remark": leads_remark,
+                        "is_interested": is_interested,
+                        "next_follow_time": next_follow_time.strftime('%Y-%m-%d %H:%M:%S') if next_follow_time else None,
+                        "create_time": current_time.strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                }
+
+            # 将数据写入dcc_leads_follow表（首次）
+            insert_query = """
+                INSERT INTO dcc_leads_follow 
+                (leads_id, follow_time, leads_remark, frist_follow_time, new_follow_time, next_follow_time)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            follow_id = execute_update(insert_query, (
+                leads_id,
+                current_time,
+                leads_remark,
+                current_time,
+                current_time,
+                next_follow_time
+            ))
+            
+            # 更新leads_task_list表中的leads_follow_id和is_interested
+            update_query = """
+                UPDATE leads_task_list 
+                SET leads_follow_id = %s, is_interested = %s
+                WHERE call_job_id = %s
+            """
+            execute_update(update_query, (follow_id, is_interested, call_job_id))
+            
+            return {
+                "status": "success",
+                "code": 200,
+                "message": "跟进记录创建成功",
+                "data": {
+                    "follow_id": follow_id,
+                    "leads_id": leads_id,
+                    "leads_name": leads_name,
+                    "leads_phone": leads_phone,
+                    "leads_remark": leads_remark,
+                    "is_interested": is_interested,
+                    "next_follow_time": next_follow_time.strftime('%Y-%m-%d %H:%M:%S') if next_follow_time else None,
+                    "create_time": current_time.strftime('%Y-%m-%d %H:%M:%S')
+                }
+            }
         
     except Exception as e:
         return {
@@ -1579,6 +1917,44 @@ async def get_leads_follow_endpoint(
                 "status": "error",
                 "code": 5000,
                 "message": f"获取线索跟进记录失败: {str(e)}"
+            }
+        )
+
+
+class ForceAnalyzeRequest(BaseModel):
+    """强制分析（打印 prompt/AI返回），可选择 dry_run 不入库"""
+    call_job_id: str
+    force: bool = True
+    dry_run: bool = True
+
+
+class ForceAnalyzeResponse(BaseModel):
+    status: str
+    code: int
+    message: str
+    data: Optional[Dict[str, Any]] = None
+
+
+@auto_call_router.post("/force-analyze", response_model=ForceAnalyzeResponse)
+async def force_analyze_endpoint(
+    request: ForceAnalyzeRequest,
+    token: Dict[str, Any] = Depends(verify_access_token)
+):
+    """对指定 call_job_id 强制执行 AI 分析，默认仅打印不入库。"""
+    try:
+        print(f"[force-analyze] start: call_job_id={request.call_job_id}, force={request.force}, dry_run={request.dry_run}")
+        result = get_leads_follow_id(request.call_job_id, force=request.force, dry_run=request.dry_run)
+        print(f"[force-analyze] result: {result}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "code": 5000,
+                "message": f"强制分析失败: {str(e)}"
             }
         )
 
@@ -1972,6 +2348,29 @@ class AutoTaskMonitor:
                                 job_id
                             ))
                             
+                            # 若包含会话，立即同步AI分析以更新 is_interested（仅回写 is_interested，不创建/更新跟进）
+                            if conversation:
+                                try:
+                                    ai_result = get_leads_follow_id(job_id, force=True, dry_run=True)
+                                    if isinstance(ai_result, dict) and ai_result.get('status') == 'success':
+                                        ai_data = ai_result.get('data') or {}
+                                        interest_value = ai_data.get('is_interested')
+                                        if interest_value is not None:
+                                            try:
+                                                execute_update(
+                                                    """
+                                                    UPDATE leads_task_list
+                                                    SET is_interested = %s
+                                                    WHERE task_id = %s AND call_job_id = %s
+                                                    """,
+                                                    (interest_value, task_id, job_id)
+                                                )
+                                                print(f"[monitor] 已同步更新 is_interested={interest_value} - job_id: {job_id}")
+                                            except Exception as e:
+                                                print(f"[monitor] 更新 is_interested 失败 - job_id: {job_id}, 错误: {str(e)}")
+                                except Exception as e:
+                                    print(f"[monitor] AI 同步分析失败 - job_id: {job_id}, 错误: {str(e)}")
+
                             # 创建跟进记录
                             await self.create_leads_follow(job_id)
                             

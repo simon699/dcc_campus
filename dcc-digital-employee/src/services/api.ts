@@ -315,6 +315,31 @@ export const tasksAPI = {
     });
   },
 
+  // 启动后台分批执行（runId模式）
+  startQueryExecutionRun: async (params: {
+    task_id: number;
+    batch_size?: number;
+    sleep_ms?: number;
+    skip_recording?: boolean;
+  }) => {
+    return apiRequest('/start-query-execution-run', {
+      method: 'POST',
+      body: JSON.stringify({
+        task_id: params.task_id,
+        batch_size: params.batch_size ?? 100,
+        sleep_ms: params.sleep_ms ?? 200,
+        skip_recording: params.skip_recording ?? true,
+      })
+    });
+  },
+
+  // 查询后台运行进度
+  getQueryExecutionRun: async (runId: number) => {
+    return apiRequest(`/get-query-execution-run?run_id=${runId}`, {
+      method: 'GET'
+    });
+  },
+
   // 获取任务统计信息（新接口）
   getTaskStatistics: async (taskId: number) => {
     return apiRequest('/task-statistics', {

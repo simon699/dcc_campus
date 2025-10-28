@@ -1,6 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { tasksAPI } from '../services/api';
+import RunProgress from './RunProgress';
 
 interface TaskLead {
   id: number;
@@ -49,6 +51,94 @@ const filterConditionMap: { [key: string]: string } = {
 };
 
 export default function TaskLeadsDrawer({ isOpen, onClose, taskInfo, taskLeads = [], onRefresh }: TaskLeadsDrawerProps) {
+  const [runId, setRunId] = useState<number | null>(null);
+  const [runStatus, setRunStatus] = useState<string>('');
+  const [runProgress, setRunProgress] = useState<{ processed: number; total: number }>({ processed: 0, total: 0 });
+  const pollTimerRef = useRef<any>(null);
+  const isPollingRef = useRef<boolean>(false);
+  const lastProgressRef = useRef<{ processed: number; total: number }>({ processed: 0, total: 0 });
+  const backoffRef = useRef<number>(1000);
+  const MAX_BACKOFF = 8000;
+
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    isPollingRef.current = false;
+    backoffRef.current = 1000;
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      stopPolling();
+      setRunId(null);
+      setRunStatus('');
+      setRunProgress({ processed: 0, total: 0 });
+      lastProgressRef.current = { processed: 0, total: 0 };
+    }
+    return () => stopPolling();
+  }, [isOpen]);
+
+  const scheduleNextPoll = () => {
+    const delay = backoffRef.current;
+    pollTimerRef.current = setTimeout(doPoll, delay);
+  };
+
+  const doPoll = async () => {
+    if (!runId || isPollingRef.current) return;
+    isPollingRef.current = true;
+    try {
+      const statusRes = await tasksAPI.getQueryExecutionRun(runId);
+      const row = statusRes?.data || {};
+      const processed = row.processed_jobs || 0;
+      const total = row.total_jobs || 0;
+      setRunStatus(row.status || '');
+      setRunProgress({ processed, total });
+
+      const last = lastProgressRef.current;
+      const progressed = processed > last.processed;
+
+      if (row.status === 'done' || row.status === 'failed') {
+        stopPolling();
+        onRefresh && onRefresh();
+        return;
+      }
+
+      if (!progressed) {
+        // 没有进展：指数退避或停止（如连续无进展，可选择停止，这里做退避）
+        backoffRef.current = Math.min(MAX_BACKOFF, backoffRef.current * 2);
+      } else {
+        // 有进展：重置退避
+        backoffRef.current = 1000;
+      }
+
+      lastProgressRef.current = { processed, total };
+      scheduleNextPoll();
+    } catch (e) {
+      stopPolling();
+    } finally {
+      isPollingRef.current = false;
+    }
+  };
+
+  const startBackgroundRefresh = async () => {
+    if (!taskInfo?.id) return;
+    try {
+      const res = await tasksAPI.startQueryExecutionRun({ task_id: taskInfo.id, batch_size: 150, sleep_ms: 150, skip_recording: true });
+      const id = res?.data?.run_id;
+      if (id) {
+        setRunId(id);
+        setRunStatus('running');
+        stopPolling();
+        lastProgressRef.current = { processed: 0, total: 0 };
+        backoffRef.current = 1000;
+        scheduleNextPoll();
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
   // 格式化筛选条件显示
   const formatFilterConditions = (sizeDesc: any) => {
     if (!sizeDesc) return [];
@@ -145,6 +235,9 @@ export default function TaskLeadsDrawer({ isOpen, onClose, taskInfo, taskLeads =
                   刷新数据
                 </button>
               )}
+              {taskInfo?.id && (
+                <RunProgress taskId={taskInfo.id} onDone={onRefresh} />
+              )}
               <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -152,6 +245,9 @@ export default function TaskLeadsDrawer({ isOpen, onClose, taskInfo, taskLeads =
               </button>
             </div>
           </div>
+
+          {/* 后台运行进度 */}
+          {/* 组件化后由 RunProgress 显示进度 */}
 
           {/* 线索列表 */}
           {taskLeads.length === 0 ? (

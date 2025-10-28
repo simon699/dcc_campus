@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import TaskCreationDrawer from './TaskCreationDrawer';
 import { tasksAPI } from '../services/api';
+import RunProgress from './RunProgress';
 
 interface Task {
   id: string;
@@ -234,7 +235,9 @@ export default function TaskListDrawer({ isOpen, onClose, tasks = [], onViewTask
                       </div>
 
                       {/* 操作按钮 */}
-                      <div className="flex space-x-2 mt-3">
+                      <div className="flex items-center justify-between mt-3">
+                        <RunProgress taskId={Number(task.id)} onDone={() => { /* 可选：刷新任务列表 */ }} />
+                        <div className="flex space-x-2">
                         <button 
                           onClick={() => handleViewDetails(task.id)}
                           disabled={loading}
@@ -245,6 +248,7 @@ export default function TaskListDrawer({ isOpen, onClose, tasks = [], onViewTask
                         <button className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs rounded transition-colors">
                           删除
                         </button>
+                        </div>
                       </div>
                     </div>
                   );

@@ -46,10 +46,18 @@ class Sample:
         script_id:str = None,
     ) -> None:
         client = self.create_client()
+        # 基础校验，避免后续返回 None 导致调用方属性访问报错
+        instance_id = os.getenv('INSTANCE_ID')
+        if not instance_id:
+            raise ValueError("缺少环境变量 INSTANCE_ID")
+        if not script_id:
+            raise ValueError("缺少脚本ID script_id")
+        if not job_group_name:
+            raise ValueError("缺少任务组名称 job_group_name")
         
         # 基本请求参数
         request_params = {
-            "instance_id": os.getenv('INSTANCE_ID'),
+            "instance_id": instance_id,
             "job_group_name": job_group_name,
             "job_group_description": job_group_description,
             "script_id": script_id
@@ -72,18 +80,24 @@ class Sample:
         
         runtime = util_models.RuntimeOptions()
         try:
-            # 复制代码运行请自行打印 API 的返回值
             response = client.create_job_group_with_options(create_job_group_request, runtime)
             job_group = response.body.job_group
+            if not job_group or not getattr(job_group, 'job_group_id', None):
+                raise RuntimeError("创建任务组未返回 job_group_id")
             return job_group
-
         except Exception as error:
-            # 此处仅做打印展示，请谨慎对待异常处理，在工程项目中切勿直接忽略异常。
-            # 错误 message
-            print(error.message)
-            # 诊断地址
-            print(error.data.get("Recommend"))
-            UtilClient.assert_as_string(error.message)
+            # 转换为明确可见的异常给上层捕获
+            # 兼容 Tea 异常结构，尽最大可能给出可读信息
+            message = getattr(error, 'message', str(error))
+            recommend = ''
+            try:
+                data = getattr(error, 'data', None)
+                if isinstance(data, dict):
+                    recommend = data.get('Recommend') or ''
+            except Exception:
+                pass
+            detail = message if not recommend else f"{message} | {recommend}"
+            raise RuntimeError(detail)
 
     @staticmethod
     async def main_async(

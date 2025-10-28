@@ -137,15 +137,19 @@ class AutoTaskMonitor:
                     tasks = job_data.get('Tasks', [])
                     job_status = job_data.get('Status', '')
                     
-                    if tasks and job_status == 'Succeeded':
+                    if tasks:
                         # 获取最后一个任务的信息
                         last_task = tasks[-1]
                         status = last_task.get('Status', '')
                         planned_time = last_task.get('PlanedTime', None)
-                        call_id = last_task.get('CallId', '')
+                        call_task_id = last_task.get('TaskId', '')
                         conversation = last_task.get('Conversation', '')
                         actual_time = last_task.get('ActualTime', None)
                         calling_number = last_task.get('CallingNumber', '')
+                        try:
+                            print(f"[monitor] job_id={job_id}, job_status={job_status}, last_task_status={status}, has_conversation={bool(conversation)}, call_task_id={call_task_id}")
+                        except Exception:
+                            pass
                         
                         # 转换时间戳
                         plan_time = None
@@ -177,27 +181,29 @@ class AutoTaskMonitor:
                         except Exception as e:
                             print(f"检查当前recording_url失败 - job_id: {job_id}, 错误: {str(e)}")
                         
-                        # 获取录音URL - 优先获取新的录音URL
+                        # 获取录音URL - 与 API 一致：仅在 Succeeded 时优先尝试新URL，失败回退旧值
                         recording_url = None
-                        if call_id:
+                        if job_status == 'Succeeded' and call_task_id:
                             try:
-                                new_recording_url = DownloadRecordingSample.main([], task_id=call_id)
+                                new_recording_url = DownloadRecordingSample.main([], task_id=call_task_id)
                                 if new_recording_url:
                                     recording_url = new_recording_url
-                                    print(f"获取录音URL成功 - call_id: {call_id}, recording_url: {recording_url}")
+                                    print(f"获取录音URL成功 - call_task_id: {call_task_id}, recording_url: {recording_url}")
                                 else:
-                                    print(f"获取录音URL失败 - call_id: {call_id}, 返回值为None")
-                                    # 如果获取失败但有旧的URL，保持旧值
+                                    print(f"获取录音URL失败 - call_task_id: {call_task_id}, 返回值为None")
                                     if current_recording_url:
                                         recording_url = current_recording_url
                                         print(f"保持原有录音URL: {recording_url}")
                             except Exception as e:
-                                print(f"获取录音URL失败 - call_id: {call_id}, 错误: {str(e)}")
-                                # 如果获取失败但有旧的URL，保持旧值
+                                print(f"获取录音URL失败 - call_task_id: {call_task_id}, 错误: {str(e)}")
                                 if current_recording_url:
                                     recording_url = current_recording_url
                                     print(f"保持原有录音URL: {recording_url}")
-                        elif current_recording_url:
+                        elif job_status == 'Failed':
+                            # 失败时不获取录音
+                            recording_url = None
+                        else:
+                            # 其它状态保持现有
                             recording_url = current_recording_url
                         
                         # 更新leads_task_list表
@@ -214,10 +220,11 @@ class AutoTaskMonitor:
                         
                         try:
                             print(f"准备更新数据库 - job_id: {job_id}, recording_url: {recording_url}, calling_number: {calling_number}")
+                            # 与 API 保持一致：使用 job_status 写入 call_status，确保 Failed 能正确反映
                             update_params = (
-                                status,
+                                job_status,
                                 plan_time,
-                                call_id,
+                                call_task_id,
                                 json.dumps(conversation) if conversation else None,
                                 calling_number,
                                 recording_url,
@@ -227,10 +234,45 @@ class AutoTaskMonitor:
                             print(f"更新参数: {update_params}")
                             affected_rows = execute_update(update_query, update_params)
                             print(f"数据库更新成功 - job_id: {job_id}, 影响行数: {affected_rows}")
-                            
+
+                            # 仅首次需要时触发AI：需满足有会话 且 is_interested 为 NULL 且 leads_follow_id 为 NULL
+                            if conversation:
+                                try:
+                                    guard_rows = execute_query(
+                                        """
+                                        SELECT is_interested, leads_follow_id
+                                        FROM leads_task_list
+                                        WHERE task_id = %s AND call_job_id = %s
+                                        """,
+                                        (task_id, job_id)
+                                    )
+                                    if guard_rows:
+                                        needs_ai = (
+                                            guard_rows[0].get('is_interested') is None and
+                                            guard_rows[0].get('leads_follow_id') is None
+                                        )
+                                    else:
+                                        needs_ai = False
+                                except Exception:
+                                    needs_ai = False
+
+                                if needs_ai:
+                                    def run_ai_follow():
+                                        try:
+                                            from .auto_call_api import get_leads_follow_id
+                                            get_leads_follow_id(job_id)
+                                        except Exception as e:
+                                            try:
+                                                print(f"[monitor-bg-ai] failed job_id={job_id}, err={str(e)}")
+                                            except Exception:
+                                                pass
+                                    t = threading.Thread(target=run_ai_follow)
+                                    t.daemon = True
+                                    t.start()
+
                             # 创建跟进记录
                             await self.create_leads_follow(job_id)
-                            
+
                         except Exception as e:
                             print(f"更新任务 {job_id} 失败: {str(e)}")
                             print(f"更新查询: {update_query}")
@@ -277,7 +319,7 @@ class AutoTaskMonitor:
         try:
             # 1. 根据call_job_id查找leads_task_list中的call_conversation和leads_id
             query = """
-                SELECT call_conversation, leads_id, leads_name, leads_phone, leads_follow_id
+                SELECT call_conversation, leads_id, leads_name, leads_phone, leads_follow_id, call_status
                 FROM leads_task_list 
                 WHERE call_job_id = %s
             """
@@ -297,6 +339,7 @@ class AutoTaskMonitor:
             leads_name = task_data.get('leads_name')
             leads_phone = task_data.get('leads_phone')
             leads_follow_id = task_data.get('leads_follow_id')
+            call_status = task_data.get('call_status')
             
             # 检查leads_follow_id是否已存在
             if leads_follow_id is not None:
@@ -306,7 +349,12 @@ class AutoTaskMonitor:
                     "message": f"call_job_id为{call_job_id}的记录已存在跟进记录，无需重复创建"
                 }
             
-            if not call_conversation:
+            # 与 API 统一：如果通话失败也要生成固定备注的跟进记录
+            if call_status == 'Failed':
+                leads_remark = "客户未接电话，未打通；"
+                next_follow_time = None
+                is_interested = 0
+            elif not call_conversation:
                 return {
                     "status": "error", 
                     "code": 4002,
@@ -315,71 +363,79 @@ class AutoTaskMonitor:
             
             # 2. 将call_conversation作为prompt调用AI接口
             try:
-                # 如果call_conversation是JSON字符串，需要解析
-                if isinstance(call_conversation, str):
-                    conversation_data = json.loads(call_conversation)
-                else:
-                    conversation_data = call_conversation
+                if call_status != 'Failed':
+                    # 如果call_conversation是JSON字符串，需要解析
+                    if isinstance(call_conversation, str):
+                        conversation_data = json.loads(call_conversation)
+                    else:
+                        conversation_data = call_conversation
+                    
+                    # 构建prompt - 使用与 API 一致的中文模板
+                    prompt = f"""
+                    请分析以下汽车销售通话记录，并返回JSON格式的分析结果：
+                    
+                    通话记录：
+                    {json.dumps(conversation_data, ensure_ascii=False, indent=2)}
+                    
+                    请分析客户意向并返回以下格式的JSON：
+                    {{
+                        "leads_remark": "客户意向分析结果",
+                        "next_follow_time": "建议下次跟进时间（格式：YYYY-MM-DD HH:MM:SS）",
+                        "is_interested": 意向判断结果
+                    }}
+                    
+                    意向判断规则（必须返回数字，不要返回布尔值）：
+                    - 如果无法判断客户意向，返回0
+                    - 如果客户有意向，返回1
+                    - 如果客户无意向，返回2
+                    """
+                    print(f"[monitor] prompt for job_id={call_job_id}: {prompt}")
+                    ai_response = ali_bailian_api(prompt)
+                    print(f"[monitor] AI返回 for job_id={call_job_id}: {ai_response}")
+
+                    # 解析AI返回的JSON（含Markdown代码块清理）
+                    try:
+                        ai_response_clean = ai_response.strip()
+                        if ai_response_clean.startswith('```json'):
+                            ai_response_clean = ai_response_clean[7:]
+                        if ai_response_clean.endswith('```'):
+                            ai_response_clean = ai_response_clean[:-3]
+                        ai_response_clean = ai_response_clean.strip()
+
+                        ai_result = json.loads(ai_response_clean)
+                        leads_remark = ai_result.get('leads_remark', '')
+                        next_follow_time_str = ai_result.get('next_follow_time', '')
+                        raw_is_interested = ai_result.get('is_interested', 0)
+
+                        def normalize_interest(value):
+                            if isinstance(value, int):
+                                return value if value in (0, 1, 2) else 0
+                            if isinstance(value, bool):
+                                return 1 if value else 2  # true=有意向(1), false=无意向(2)
+                            if isinstance(value, str):
+                                v = value.strip().lower()
+                                if v in ('0', '未知', '不确定', '无法判断'):
+                                    return 0
+                                if v in ('1', 'true', '有意', '有意向'):
+                                    return 1
+                                if v in ('2', 'false', '无意', '无意向', '没意向', '没有意向'):
+                                    return 2
+                            return 0
+
+                        is_interested = normalize_interest(raw_is_interested)
+
+                        next_follow_time = None
+                        if next_follow_time_str:
+                            try:
+                                next_follow_time = datetime.strptime(next_follow_time_str, '%Y-%m-%d %H:%M:%S')
+                            except:
+                                next_follow_time = datetime.now()
+                    except json.JSONDecodeError:
+                        leads_remark = "AI分析结果解析失败，需要人工跟进"
+                        next_follow_time = datetime.now()
+                        is_interested = 0
                 
-                # 构建prompt
-                prompt = {json.dumps(conversation_data, ensure_ascii=False, indent=2)}
-                print(f"prompt: {prompt}")
-                # 调用AI接口
-                ai_response = ali_bailian_api(prompt)
-                print(f"AI返回: {ai_response}")
-                
-                # 解析AI返回的JSON
-                try:
-                    # 处理AI返回的Markdown代码块格式
-                    ai_response_clean = ai_response.strip()
-                    if ai_response_clean.startswith('```json'):
-                        # 移除开头的 ```json
-                        ai_response_clean = ai_response_clean[7:]
-                    if ai_response_clean.endswith('```'):
-                        # 移除结尾的 ```
-                        ai_response_clean = ai_response_clean[:-3]
-                    
-                    # 清理可能的换行符和多余空格
-                    ai_response_clean = ai_response_clean.strip()
-
-                    ai_result = json.loads(ai_response_clean)
-                    leads_remark = ai_result.get('leads_remark', '')
-                    next_follow_time_str = ai_result.get('next_follow_time', '')
-                    raw_is_interested = ai_result.get('is_interested', 0)
-
-                    # 规范化 is_interested 到 0/1/2
-                    def normalize_interest(value):
-                        if isinstance(value, int):
-                            return value if value in (0, 1, 2) else 0
-                        if isinstance(value, str):
-                            v = value.strip().lower()
-                            if v in ('0', '未知', '不确定', '无法判断'):
-                                return 0
-                            if v in ('1', '有意', '有意向'):
-                                return 1
-                            if v in ('2', '无意', '无意向', '没意向', '没有意向'):
-                                return 2
-                        return 0
-
-                    is_interested = normalize_interest(raw_is_interested)
-
-                    # 解析下次跟进时间
-                    next_follow_time = None
-                    if next_follow_time_str:
-                        try:
-                            next_follow_time = datetime.strptime(next_follow_time_str, '%Y-%m-%d %H:%M:%S')
-                        except:
-                            # 如果时间格式不正确，设置为当前时间加1天
-                            next_follow_time = datetime.now()
-                    
-                except json.JSONDecodeError:
-                    # 如果AI返回的不是标准JSON，使用默认值
-                    leads_remark = "AI分析结果解析失败，需要人工跟进"
-                    next_follow_time = datetime.now()
-                    is_interested = 0
-                    
             except Exception as e:
-                # AI调用失败，使用默认值
                 leads_remark = f"AI分析失败: {str(e)}，需要人工跟进"
                 next_follow_time = datetime.now()
                 is_interested = 0
