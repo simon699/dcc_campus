@@ -9,6 +9,11 @@ export function middleware(request: NextRequest) {
   // 获取当前请求的路径
   const { pathname } = request.nextUrl;
   
+  // 跳过静态资源和API路由的中间件处理
+  if (pathname.startsWith('/_next/') || pathname.startsWith('/api/') || pathname.includes('.')) {
+    return NextResponse.next();
+  }
+  
   // 如果用户访问的是登录页并且已经登录，跳转到首页
   if (pathname === '/login' && user && accessToken) {
     console.log('中间件：用户已登录，从登录页跳转到首页');

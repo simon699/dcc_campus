@@ -432,17 +432,17 @@ export default function Home() {
           // API返回的是数组格式，不是包含tasks字段的对象
           const apiTasks = response.data || [];
           
-          // 过滤出task_type = 2或3的任务（外呼中的任务和外呼完成的任务）
+          // 过滤出task_type = 2、3或5的任务（外呼中的任务、外呼完成的任务和已暂停的任务）
           const filteredTasks = apiTasks.filter((task: any) => 
-            task.task_type === 2 || task.task_type === 3
+            task.task_type === 2 || task.task_type === 3 || task.task_type === 5
           );
           
           console.log('DEBUG - All tasks:', apiTasks);
-          console.log('DEBUG - Filtered tasks (type 2 or 3):', filteredTasks);
+          console.log('DEBUG - Filtered tasks (type 2, 3 or 5):', filteredTasks);
           
           if (filteredTasks.length === 0) {
             // 没有外呼相关的任务，显示提示
-            alert('暂无外呼中或外呼完成的任务，请先发起任务并发起外呼');
+            alert('暂无外呼中、外呼完成或已暂停的任务，请先发起任务并发起外呼');
             return;
           }
           

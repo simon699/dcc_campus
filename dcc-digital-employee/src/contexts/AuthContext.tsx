@@ -69,6 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     
     try {
+      console.log('AuthContext：开始登录流程');
+      
       // 调用API进行身份验证
       const response = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
@@ -83,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const result = await response.json();
+      console.log('AuthContext：登录API响应', result);
 
       if (result.status === 'success' && result.data) {
         const { user_info, access_token } = result.data;
@@ -91,6 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           username: user_info.username,
           dcc_user: user_info.dcc_user 
         };
+        
+        console.log('AuthContext：准备存储用户数据', userData);
         
         // 存储用户信息和token
         localStorage.setItem('user', JSON.stringify(userData));
@@ -106,16 +111,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           sessionStorage.setItem('needBindDcc', 'true');
         }
         
+        console.log('AuthContext：设置用户状态');
         setUser(userData);
         
         // 启动活动监听器
         getActivityMonitor().start();
         
-        router.push('/');
+        console.log('AuthContext：登录成功，准备跳转');
+        // 延迟跳转，确保状态更新完成
+        setTimeout(() => {
+          console.log('AuthContext：执行跳转到首页');
+          router.push('/');
+        }, 200);
       } else {
         throw new Error(result.message || '登录失败');
       }
     } catch (error) {
+      console.error('AuthContext：登录失败', error);
       if (error instanceof Error) {
         throw error;
       } else {

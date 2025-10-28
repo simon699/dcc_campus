@@ -42,8 +42,8 @@ export default function TaskSelectionModal({
       if (response.status === 'success') {
         // API返回的是数组格式，不是包含tasks字段的对象
         const apiTasks = response.data || [];
-        // 显示外呼进行中、已完成和跟进完成的任务（task_type = 2、3 或 4）
-        const completedTasks = apiTasks.filter((task: any) => task.task_type === 2 || task.task_type === 3 || task.task_type === 4);
+        // 显示外呼进行中、已完成、跟进完成和已暂停的任务（task_type = 2、3、4 或 5）
+        const completedTasks = apiTasks.filter((task: any) => task.task_type === 2 || task.task_type === 3 || task.task_type === 4 || task.task_type === 5);
         setTasks(completedTasks);
       } else {
         setError(response.message || '获取任务列表失败');
@@ -66,6 +66,8 @@ export default function TaskSelectionModal({
         return '跟进中';
       case 4:
         return '跟进完成';
+      case 5:
+        return '已暂停';
       default:
         return '未知状态';
     }
@@ -81,6 +83,8 @@ export default function TaskSelectionModal({
         return 'text-blue-400 bg-blue-500/20';
       case 4:
         return 'text-green-400 bg-green-500/20';
+      case 5:
+        return 'text-yellow-400 bg-yellow-500/20';
       default:
         return 'text-gray-400 bg-gray-500/20';
     }

@@ -32,7 +32,9 @@ export default function Login() {
   // 如果用户已登录，跳转到首页
   useEffect(() => {
     if (user) {
-      router.push('/');
+      console.log('登录页面：检测到用户已登录，准备跳转到首页');
+      // 使用replace而不是push，避免在历史记录中留下登录页面
+      router.replace('/');
     }
   }, [user, router]);
 
@@ -62,6 +64,7 @@ export default function Login() {
     try {
       // 直接使用AuthContext的login方法
       await login(username, password);
+      console.log('登录页面：登录成功，等待跳转');
     } catch (err) {
       setError('登录失败，请重试');
       console.error('Login error:', err);

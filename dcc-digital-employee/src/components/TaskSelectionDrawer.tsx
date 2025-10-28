@@ -46,6 +46,8 @@ export default function TaskSelectionDrawer({ isOpen, onClose, onTaskSelect, tas
         return { text: '外呼完成', color: 'bg-purple-500/20 text-purple-300' };
       case 4:
         return { text: '已删除', color: 'bg-red-500/20 text-red-300' };
+      case 5:
+        return { text: '已暂停', color: 'bg-yellow-500/20 text-yellow-300' };
       default:
         return { text: '未知状态', color: 'bg-gray-500/20 text-gray-300' };
     }

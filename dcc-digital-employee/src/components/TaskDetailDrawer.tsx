@@ -11,7 +11,7 @@ interface Task {
   targetCount: number;
   createdAt: string;
   status: 'pending' | 'script_configured' | 'completed';
-  task_type?: number; // 1:已创建；2:开始外呼；3:外呼完成；4:跟进完成
+  task_type?: number; // 1:已创建；2:开始外呼；3:外呼完成；4:已删除；5:已暂停
   organization_id?: string;
   create_name?: string;
   script_id?: string;
@@ -87,6 +87,8 @@ export default function TaskDetailDrawer({
         return { text: '外呼完成', color: 'bg-purple-500/20 text-purple-300' };
       case 4:
         return { text: '已删除', color: 'bg-red-500/20 text-red-300' };
+      case 5:
+        return { text: '已暂停', color: 'bg-yellow-500/20 text-yellow-300' };
       default:
         return { text: '未知状态', color: 'bg-gray-500/20 text-gray-300' };
     }
