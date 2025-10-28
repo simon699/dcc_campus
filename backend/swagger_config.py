@@ -15,10 +15,13 @@ tags_metadata = [
         "name": "组织管理",
         "description": "组织创建、查询和管理接口",
     },
-
     {
         "name": "线索管理",
         "description": "客户线索的创建、查询和管理接口。线索默认状态为未跟进(1)，客户等级为N级(5)。需要在请求头中提供access-token进行身份验证。",
+    },
+    {
+        "name": "线索导入",
+        "description": "通过Excel文件批量导入线索数据的接口。支持文件上传、数据验证、模板下载等功能。需要在请求头中提供access-token进行身份验证。",
     },
     {
         "name": "DCC用户管理",

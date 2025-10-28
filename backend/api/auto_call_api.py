@@ -1480,6 +1480,7 @@ def get_leads_follow_id(call_job_id):
                 is_interested = 0
         
         # 3. 将数据写入dcc_leads_follow表
+        # 注意：dcc_leads_follow表的leads_id字段是int类型，需要转换
         insert_query = """
             INSERT INTO dcc_leads_follow 
             (leads_id, follow_time, leads_remark, frist_follow_time, new_follow_time, next_follow_time)
@@ -1487,8 +1488,20 @@ def get_leads_follow_id(call_job_id):
         """
         
         current_time = datetime.now()
+        # 将leads_id转换为整数，因为dcc_leads_follow表的leads_id字段是int类型
+        try:
+            leads_id_int = int(leads_id) if leads_id else None
+        except (ValueError, TypeError):
+            # 如果转换失败，尝试从dcc_leads表获取对应的id
+            get_id_query = "SELECT id FROM dcc_leads WHERE leads_id = %s"
+            id_result = execute_query(get_id_query, (leads_id,))
+            if id_result:
+                leads_id_int = id_result[0]['id']
+            else:
+                raise ValueError(f"无法找到leads_id为{leads_id}的记录")
+        
         follow_id = execute_update(insert_query, (
-            leads_id,
+            leads_id_int,
             current_time,
             leads_remark,
             current_time,

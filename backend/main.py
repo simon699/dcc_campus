@@ -10,6 +10,7 @@ from api.createOrganization import organization_router
 from api.scene import scene_router
 from api.dcc_user import dcc_user_router
 from api.dcc_leads import dcc_leads_router
+from api.leads_import import leads_import_router
 from api.auto_call_api import auto_call_router
 from api.auth_verify import auth_verify_router
 from api.auto_task_monitor import auto_task_monitor
@@ -28,6 +29,7 @@ app = FastAPI(
     * **组织管理** - 组织创建和管理
     * **产品管理** - 产品分类和管理（需要access-token验证）
     * **线索管理** - 客户线索创建和管理（需要access-token验证）
+    * **线索导入** - 通过Excel文件批量导入线索数据（需要access-token验证）
     * **跟进管理** - 线索跟进记录创建和管理（需要access-token验证）
     * **任务管理** - 任务创建和管理（需要access-token验证）
     * **外呼任务管理** - 外呼任务创建和查询（需要access-token验证）
@@ -148,6 +150,7 @@ app.include_router(organization_router, prefix="/api")
 app.include_router(scene_router, prefix="/api")
 app.include_router(dcc_user_router, prefix="/api")
 app.include_router(dcc_leads_router, prefix="/api")
+app.include_router(leads_import_router, prefix="/api")
 app.include_router(auto_call_router, prefix="/api")
 app.include_router(auth_verify_router, prefix="/api")
 app.include_router(config_check_router, prefix="/api")
