@@ -3,11 +3,6 @@
 """
 DCC线索数据Excel导入脚本
 支持从Excel文件导入线索数据到dcc_leads表
-
-处理逻辑：
-1. 如果Excel中有leads_id字段且不为空，直接使用该值
-2. 如果leads_id为空或不存在，则使用数据库自增的id作为leads_id
-3. 自动检查leads_id重复，避免重复导入
 """
 
 import pandas as pd
@@ -63,60 +58,34 @@ def import_leads_from_excel(excel_file_path, organization_id='ORG001'):
         
         for idx, row in df.iterrows():
             try:
-                # 处理leads_id字段
-                leads_id = None
-                if pd.notna(row['leads_id']) and str(row['leads_id']).strip():
-                    leads_id = str(row['leads_id']).strip()
-                    # 检查是否已存在相同的leads_id
-                    existing = execute_query('SELECT id FROM dcc_leads WHERE leads_id = %s', (leads_id,))
-                    if existing:
-                        print(f'跳过行 {idx + 1}: leads_id {leads_id} 已存在')
-                        skipped_count += 1
-                        continue
+                # 检查是否已存在相同的leads_id
+                existing = execute_query('SELECT id FROM dcc_leads WHERE leads_id = %s', (str(row['leads_id']),))
                 
-                # 准备基础插入数据
-                base_insert_data = {
+                if existing:
+                    print(f'跳过行 {idx + 1}: leads_id {row["leads_id"]} 已存在')
+                    skipped_count += 1
+                    continue
+                
+                # 准备插入数据（根据dcc_leads.sql文件结构）
+                insert_data = {
                     'leads_user_name': str(row['leads_user_name']) if pd.notna(row['leads_user_name']) else '',
                     'leads_user_phone': str(row['leads_user_phone']) if pd.notna(row['leads_user_phone']) else '',
+                    'leads_id': str(row['leads_id']) if pd.notna(row['leads_id']) else '',
                     'leads_product': str(row['leads_product']) if pd.notna(row['leads_product']) else '',
                     'leads_type': str(row['leads_type']) if pd.notna(row['leads_type']) else '',
                     'organization_id': str(row['organization_id']) if pd.notna(row['organization_id']) else organization_id,
                     'leads_create_time': row['leads_create_time'] if pd.notna(row['leads_create_time']) else datetime.now()
                 }
                 
-                if leads_id:
-                    # 如果有leads_id，直接插入
-                    insert_data = base_insert_data.copy()
-                    insert_data['leads_id'] = leads_id
-                    
-                    insert_sql = '''
-                    INSERT INTO dcc_leads 
-                    (organization_id, leads_id, leads_user_name, leads_user_phone, leads_create_time, leads_product, leads_type)
-                    VALUES (%(organization_id)s, %(leads_id)s, %(leads_user_name)s, %(leads_user_phone)s, %(leads_create_time)s, %(leads_product)s, %(leads_type)s)
-                    '''
-                    
-                    result = execute_update(insert_sql, insert_data)
-                    final_leads_id = leads_id
-                else:
-                    # 如果没有leads_id，先插入数据获取自增ID
-                    insert_sql_without_leads_id = '''
-                    INSERT INTO dcc_leads 
-                    (organization_id, leads_user_name, leads_user_phone, leads_create_time, leads_product, leads_type)
-                    VALUES (%(organization_id)s, %(leads_user_name)s, %(leads_user_phone)s, %(leads_create_time)s, %(leads_product)s, %(leads_type)s)
-                    '''
-                    
-                    result = execute_update(insert_sql_without_leads_id, base_insert_data)
-                    
-                    # 使用自增ID作为leads_id
-                    final_leads_id = str(result)
-                    
-                    # 更新leads_id字段
-                    update_sql = "UPDATE dcc_leads SET leads_id = %s WHERE id = %s"
-                    execute_update(update_sql, (final_leads_id, result))
-                    
-                    print(f'行 {idx + 1}: 使用自增ID {result} 作为 leads_id')
+                # 插入数据（根据dcc_leads.sql文件结构）
+                insert_sql = '''
+                INSERT INTO dcc_leads 
+                (organization_id, leads_id, leads_user_name, leads_user_phone, leads_create_time, leads_product, leads_type)
+                VALUES (%(organization_id)s, %(leads_id)s, %(leads_user_name)s, %(leads_user_phone)s, %(leads_create_time)s, %(leads_product)s, %(leads_type)s)
+                '''
                 
-                print(f'成功导入行 {idx + 1}: ID {result}, leads_id {final_leads_id}, 姓名: {base_insert_data["leads_user_name"]}, 电话: {base_insert_data["leads_user_phone"]}')
+                result = execute_update(insert_sql, insert_data)
+                print(f'成功导入行 {idx + 1}: ID {result}, 姓名: {insert_data["leads_user_name"]}, 电话: {insert_data["leads_user_phone"]}')
                 success_count += 1
                 
             except Exception as e:

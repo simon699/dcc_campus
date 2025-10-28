@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
 import os
-from database.db import execute_query
+import pandas as pd
+import tempfile
+from database.db import execute_query, execute_update
 from .auth import verify_access_token
 
 dcc_leads_router = APIRouter(tags=["线索管理"])
@@ -40,6 +42,13 @@ class LeadsCountResponse(BaseModel):
     code: int
     message: str
     data: Any  # 可以是列表或字典
+
+class LeadsImportResponse(BaseModel):
+    """线索导入响应"""
+    status: str
+    code: int
+    message: str
+    data: Dict[str, Any]
 
 @dcc_leads_router.get("/leads/statistics", response_model=LeadsCountResponse)
 async def get_leads_statistics(
@@ -617,3 +626,198 @@ def _parse_time_ranges(start_str: Optional[str], end_str: Optional[str]) -> List
                 time_ranges.append((start_time, end_time))
     
     return time_ranges
+
+@dcc_leads_router.post("/leads/import", response_model=LeadsImportResponse)
+async def import_leads_from_excel(
+    file: UploadFile = File(..., description="Excel文件，支持.xlsx和.xls格式"),
+    token: str = Depends(verify_access_token)
+):
+    """
+    通过Excel文件导入线索数据
+    
+    支持的Excel列名：
+    - leads_id: 线索ID（必填，唯一标识）
+    - leads_user_name: 客户姓名
+    - leads_user_phone: 客户电话
+    - leads_product: 线索产品
+    - leads_type: 线索等级
+    - organization_id: 组织ID（可选，默认使用用户所属组织）
+    - leads_create_time: 线索创建时间（可选，默认当前时间）
+    
+    导入规则：
+    - 如果leads_id已存在，则跳过该条记录
+    - 所有字段都会进行数据验证和清理
+    - 支持批量导入，返回详细的导入统计信息
+    
+    需要在请求头中提供access-token进行身份验证
+    """
+    try:
+        # 验证文件类型
+        if not file.filename.lower().endswith(('.xlsx', '.xls')):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "error",
+                    "code": 1003,
+                    "message": "只支持Excel文件格式(.xlsx, .xls)"
+                }
+            )
+        
+        # 获取用户组织ID
+        user_id = token.get("user_id")
+        if not user_id:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "error",
+                    "code": 1003,
+                    "message": "令牌中缺少用户ID信息"
+                }
+            )
+        
+        org_query = "SELECT dcc_user_org_id FROM users WHERE id = %s"
+        org_result = execute_query(org_query, (user_id,))
+        
+        if not org_result or not org_result[0].get('dcc_user_org_id'):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "error",
+                    "code": 1003,
+                    "message": "用户未绑定组织或组织ID无效"
+                }
+            )
+        
+        default_organization_id = org_result[0]['dcc_user_org_id']
+        
+        # 读取上传的文件
+        file_content = await file.read()
+        
+        # 创建临时文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as temp_file:
+            temp_file.write(file_content)
+            temp_file_path = temp_file.name
+        
+        try:
+            # 读取Excel文件
+            df = pd.read_excel(temp_file_path)
+            
+            # 验证必要的列是否存在
+            required_columns = ['leads_id']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "status": "error",
+                        "code": 1003,
+                        "message": f"Excel文件缺少必要的列: {', '.join(missing_columns)}"
+                    }
+                )
+            
+            # 字段映射 - Excel列名 -> 数据库字段名
+            field_mapping = {
+                'leads_id': 'leads_id',
+                'leads_user_name': 'leads_user_name',
+                'leads_user_phone': 'leads_user_phone',
+                'leads_product': 'leads_product',
+                'leads_type': 'leads_type',
+                'organization_id': 'organization_id',
+                'leads_create_time': 'leads_create_time'
+            }
+            
+            success_count = 0
+            error_count = 0
+            skipped_count = 0
+            errors = []
+            imported_leads = []
+            
+            for idx, row in df.iterrows():
+                try:
+                    # 检查leads_id是否为空
+                    leads_id = str(row['leads_id']).strip() if pd.notna(row['leads_id']) else ''
+                    if not leads_id:
+                        errors.append(f'第{idx + 1}行: leads_id不能为空')
+                        error_count += 1
+                        continue
+                    
+                    # 检查是否已存在相同的leads_id
+                    existing = execute_query('SELECT id FROM dcc_leads WHERE leads_id = %s', (leads_id,))
+                    
+                    if existing:
+                        errors.append(f'第{idx + 1}行: leads_id {leads_id} 已存在，跳过')
+                        skipped_count += 1
+                        continue
+                    
+                    # 准备插入数据
+                    insert_data = {
+                        'leads_id': leads_id,
+                        'leads_user_name': str(row['leads_user_name']).strip() if pd.notna(row.get('leads_user_name')) else '',
+                        'leads_user_phone': str(row['leads_user_phone']).strip() if pd.notna(row.get('leads_user_phone')) else '',
+                        'leads_product': str(row['leads_product']).strip() if pd.notna(row.get('leads_product')) else '',
+                        'leads_type': str(row['leads_type']).strip() if pd.notna(row.get('leads_type')) else '',
+                        'organization_id': str(row['organization_id']).strip() if pd.notna(row.get('organization_id')) else default_organization_id,
+                        'leads_create_time': row['leads_create_time'] if pd.notna(row.get('leads_create_time')) else datetime.now()
+                    }
+                    
+                    # 插入数据
+                    insert_sql = '''
+                    INSERT INTO dcc_leads 
+                    (organization_id, leads_id, leads_user_name, leads_user_phone, leads_create_time, leads_product, leads_type)
+                    VALUES (%(organization_id)s, %(leads_id)s, %(leads_user_name)s, %(leads_user_phone)s, %(leads_create_time)s, %(leads_product)s, %(leads_type)s)
+                    '''
+                    
+                    result = execute_update(insert_sql, insert_data)
+                    success_count += 1
+                    imported_leads.append({
+                        'leads_id': insert_data['leads_id'],
+                        'leads_user_name': insert_data['leads_user_name'],
+                        'leads_user_phone': insert_data['leads_user_phone']
+                    })
+                    
+                except Exception as e:
+                    error_msg = f'第{idx + 1}行导入失败: {str(e)}'
+                    errors.append(error_msg)
+                    error_count += 1
+            
+            # 返回导入结果
+            result_data = {
+                'success_count': success_count,
+                'error_count': error_count,
+                'skipped_count': skipped_count,
+                'total_rows': len(df),
+                'imported_leads': imported_leads[:10],  # 只返回前10条导入的线索信息
+                'errors': errors[:20]  # 只返回前20个错误信息
+            }
+            
+            if success_count > 0:
+                return LeadsImportResponse(
+                    status="success",
+                    code=1000,
+                    message=f"导入完成: 成功 {success_count} 条, 失败 {error_count} 条, 跳过 {skipped_count} 条",
+                    data=result_data
+                )
+            else:
+                return LeadsImportResponse(
+                    status="error",
+                    code=1002,
+                    message=f"导入失败: 没有成功导入任何线索",
+                    data=result_data
+                )
+                
+        finally:
+            # 清理临时文件
+            if os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "code": 1002,
+                "message": f"导入过程失败: {str(e)}"
+            }
+        )

@@ -357,12 +357,28 @@ class AutoTaskMonitor:
                     
                     # 清理可能的换行符和多余空格
                     ai_response_clean = ai_response_clean.strip()
-                    
+
                     ai_result = json.loads(ai_response_clean)
                     leads_remark = ai_result.get('leads_remark', '')
                     next_follow_time_str = ai_result.get('next_follow_time', '')
-                    is_interested = ai_result.get('is_interested', 0)
-                    
+                    raw_is_interested = ai_result.get('is_interested', 0)
+
+                    # 规范化 is_interested 到 0/1/2
+                    def normalize_interest(value):
+                        if isinstance(value, int):
+                            return value if value in (0, 1, 2) else 0
+                        if isinstance(value, str):
+                            v = value.strip().lower()
+                            if v in ('0', '未知', '不确定', '无法判断'):
+                                return 0
+                            if v in ('1', '有意', '有意向'):
+                                return 1
+                            if v in ('2', '无意', '无意向', '没意向', '没有意向'):
+                                return 2
+                        return 0
+
+                    is_interested = normalize_interest(raw_is_interested)
+
                     # 解析下次跟进时间
                     next_follow_time = None
                     if next_follow_time_str:
@@ -385,7 +401,6 @@ class AutoTaskMonitor:
                 is_interested = 0
             
             # 3. 将数据写入dcc_leads_follow表
-            # 注意：dcc_leads_follow表的leads_id字段是int类型，需要转换
             insert_query = """
                 INSERT INTO dcc_leads_follow 
                 (leads_id, follow_time, leads_remark, frist_follow_time, new_follow_time, next_follow_time)
@@ -393,20 +408,8 @@ class AutoTaskMonitor:
             """
             
             current_time = datetime.now()
-            # 将leads_id转换为整数，因为dcc_leads_follow表的leads_id字段是int类型
-            try:
-                leads_id_int = int(leads_id) if leads_id else None
-            except (ValueError, TypeError):
-                # 如果转换失败，尝试从dcc_leads表获取对应的id
-                get_id_query = "SELECT id FROM dcc_leads WHERE leads_id = %s"
-                id_result = execute_query(get_id_query, (leads_id,))
-                if id_result:
-                    leads_id_int = id_result[0]['id']
-                else:
-                    raise ValueError(f"无法找到leads_id为{leads_id}的记录")
-            
             follow_id = execute_update(insert_query, (
-                leads_id_int,
+                leads_id,
                 current_time,
                 leads_remark,
                 current_time,

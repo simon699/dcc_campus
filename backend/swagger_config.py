@@ -15,13 +15,10 @@ tags_metadata = [
         "name": "组织管理",
         "description": "组织创建、查询和管理接口",
     },
+
     {
         "name": "线索管理",
         "description": "客户线索的创建、查询和管理接口。线索默认状态为未跟进(1)，客户等级为N级(5)。需要在请求头中提供access-token进行身份验证。",
-    },
-    {
-        "name": "线索导入",
-        "description": "通过Excel文件批量导入线索数据的接口。支持文件上传、数据验证、模板下载等功能。需要在请求头中提供access-token进行身份验证。",
     },
     {
         "name": "DCC用户管理",
@@ -56,6 +53,53 @@ response_examples = {
             "message": "数据已存在",
             "data": {
                 "existing_id": 123
+            }
+        }
+    },
+    "import_success_response": {
+        "summary": "线索导入成功响应",
+        "value": {
+            "status": "success",
+            "code": 1000,
+            "message": "导入完成: 成功 5 条, 失败 0 条, 跳过 2 条",
+            "data": {
+                "success_count": 5,
+                "error_count": 0,
+                "skipped_count": 2,
+                "total_rows": 7,
+                "imported_leads": [
+                    {
+                        "leads_id": "LEAD001",
+                        "leads_user_name": "张三",
+                        "leads_user_phone": "13800138001"
+                    },
+                    {
+                        "leads_id": "LEAD002", 
+                        "leads_user_name": "李四",
+                        "leads_user_phone": "13800138002"
+                    }
+                ],
+                "errors": []
+            }
+        }
+    },
+    "import_error_response": {
+        "summary": "线索导入错误响应",
+        "value": {
+            "status": "error",
+            "code": 1002,
+            "message": "导入失败: 没有成功导入任何线索",
+            "data": {
+                "success_count": 0,
+                "error_count": 3,
+                "skipped_count": 0,
+                "total_rows": 3,
+                "imported_leads": [],
+                "errors": [
+                    "第1行: leads_id不能为空",
+                    "第2行: leads_id LEAD001 已存在，跳过",
+                    "第3行导入失败: 数据格式错误"
+                ]
             }
         }
     }

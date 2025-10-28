@@ -17,3 +17,5 @@ dashscope>=1.14.0
 alibabacloud-outboundbot20191226>=1.0.0
 alibabacloud-tea-openapi>=0.3.8
 alibabacloud-tea-util>=0.3.11
+pandas>=1.5.0
+openpyxl>=3.0.0
