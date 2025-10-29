@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
+import logging
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 from datetime import datetime
@@ -1699,27 +1700,11 @@ def get_leads_follow_id(call_job_id, *, force: bool = False, dry_run: bool = Fal
                 else:
                     conversation_data = call_conversation
                 
-                prompt = f"""
-                请分析以下汽车销售通话记录，并返回JSON格式的分析结果：
+                prompt = {json.dumps(conversation_data, ensure_ascii=False, indent=2)}
                 
-                通话记录：
-                {json.dumps(conversation_data, ensure_ascii=False, indent=2)}
-                
-                请分析客户意向并返回以下格式的JSON：
-                {{
-                    "leads_remark": "客户意向分析结果",
-                    "next_follow_time": "建议下次跟进时间（格式：YYYY-MM-DD HH:MM:SS）",
-                    "is_interested": 意向判断结果
-                }}
-                
-                意向判断规则（必须返回数字，不要返回布尔值）：
-                - 如果无法判断客户意向，返回0
-                - 如果客户有意向，返回1
-                - 如果客户无意向，返回2
-                """
-                print(f"prompt: {prompt}")
+                logging.info(f"prompt: {prompt}")
                 ai_response = ali_bailian_api(prompt)
-                print(f"AI返回: {ai_response}")
+                logging.info(f"AI返回: {ai_response}")
                 try:
                     ai_response_clean = ai_response.strip()
                     if ai_response_clean.startswith('```json'):

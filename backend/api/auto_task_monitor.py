@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import json
 import threading
 from datetime import datetime, timedelta
@@ -370,28 +371,11 @@ class AutoTaskMonitor:
                     else:
                         conversation_data = call_conversation
                     
-                    # 构建prompt - 使用与 API 一致的中文模板
-                    prompt = f"""
-                    请分析以下汽车销售通话记录，并返回JSON格式的分析结果：
-                    
-                    通话记录：
-                    {json.dumps(conversation_data, ensure_ascii=False, indent=2)}
-                    
-                    请分析客户意向并返回以下格式的JSON：
-                    {{
-                        "leads_remark": "客户意向分析结果",
-                        "next_follow_time": "建议下次跟进时间（格式：YYYY-MM-DD HH:MM:SS）",
-                        "is_interested": 意向判断结果
-                    }}
-                    
-                    意向判断规则（必须返回数字，不要返回布尔值）：
-                    - 如果无法判断客户意向，返回0
-                    - 如果客户有意向，返回1
-                    - 如果客户无意向，返回2
-                    """
-                    print(f"[monitor] prompt for job_id={call_job_id}: {prompt}")
+                    # 构建prompt（当前直接使用会话JSON）
+                    prompt = json.dumps(conversation_data, ensure_ascii=False, indent=2)
+                    logging.info(f"[monitor] prompt for job_id={call_job_id}: {prompt}")
                     ai_response = ali_bailian_api(prompt)
-                    print(f"[monitor] AI返回 for job_id={call_job_id}: {ai_response}")
+                    logging.info(f"[monitor] AI返回 for job_id={call_job_id}: {ai_response}")
 
                     # 解析AI返回的JSON（含Markdown代码块清理）
                     try:

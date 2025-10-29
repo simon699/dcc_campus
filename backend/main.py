@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+import logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 import uvicorn
@@ -70,6 +71,16 @@ app = FastAPI(
     openapi_tags=tags_metadata,
     docs_url=None,  # 禁用默认的Swagger UI
     redoc_url=None,  # 禁用默认的ReDoc
+)
+
+# 统一日志到文件 backend.log + 控制台
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s - %(message)s',
+    handlers=[
+        logging.FileHandler('backend.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
 )
 
 # 配置CORS
