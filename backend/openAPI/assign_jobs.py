@@ -64,67 +64,107 @@ class Sample:
     def main(
         job_group_id: str,
         jobs_json_list: List[Dict[str, Any]]
-    ) -> str:
+    ) -> List[str]:
         """
         分配任务到指定作业组
         
         @param job_group_id: 作业组ID
         @param jobs_json_list: JobsJson列表，每个元素是一个字典，包含extras和contacts
-        @return: 返回jobs_id
+        @return: 返回jobs_id列表（因为分批处理）
         """
         client = Sample.create_client()
         params = Sample.create_api_info()
-        # query params
-        queries = {}
-        queries['InstanceId'] = os.getenv('INSTANCE_ID')
-        queries['JobGroupId'] = job_group_id
+        instance_id = os.getenv('INSTANCE_ID')
         
-        # 动态添加JobsJson参数
-        for i, job_json in enumerate(jobs_json_list, 1):
-            queries[f'JobsJson.{i}'] = json.dumps(job_json, ensure_ascii=False)
+        # 分批处理：每批最多100个任务，避免URL过长
+        batch_size = 100
+        all_jobs_id = []
         
-        # runtime options
-        runtime = util_models.RuntimeOptions()
-        request = open_api_models.OpenApiRequest(
-            query=OpenApiUtilClient.query(queries)
-        )
-        # 复制代码运行请自行打印 API 的返回值
-        # 返回值实际为 Map 类型，可从 Map 中获得三类数据：响应体 body、响应头 headers、HTTP 返回的状态码 statusCode。
-        response = client.call_api(params, request, runtime)
-        return response['body']['JobsId']
+        for batch_start in range(0, len(jobs_json_list), batch_size):
+            batch_end = min(batch_start + batch_size, len(jobs_json_list))
+            batch_jobs = jobs_json_list[batch_start:batch_end]
+            
+            # 构建查询参数
+            queries = {}
+            queries['InstanceId'] = instance_id
+            queries['JobGroupId'] = job_group_id
+            
+            # 动态添加JobsJson参数到查询参数中
+            for i, job_json in enumerate(batch_jobs, 1):
+                queries[f'JobsJson.{i}'] = json.dumps(job_json, ensure_ascii=False)
+            
+            # runtime options
+            runtime = util_models.RuntimeOptions()
+            request = open_api_models.OpenApiRequest(
+                query=OpenApiUtilClient.query(queries)
+            )
+            
+            # 调用API
+            response = client.call_api(params, request, runtime)
+            batch_jobs_id = response['body']['JobsId']
+            
+            # 如果返回的是单个字符串，转换为列表
+            if isinstance(batch_jobs_id, str):
+                batch_jobs_id = [batch_jobs_id]
+            elif not isinstance(batch_jobs_id, list):
+                batch_jobs_id = list(batch_jobs_id) if batch_jobs_id else []
+            
+            all_jobs_id.extend(batch_jobs_id)
+        
+        return all_jobs_id
 
     @staticmethod
     async def main_async(
         job_group_id: str,
         jobs_json_list: List[Dict[str, Any]]
-    ) -> str:
+    ) -> List[str]:
         """
         异步分配任务到指定作业组
         
         @param job_group_id: 作业组ID
         @param jobs_json_list: JobsJson列表，每个元素是一个字典，包含extras和contacts
-        @return: 返回jobs_id
+        @return: 返回jobs_id列表（因为分批处理）
         """
         client = Sample.create_client()
         params = Sample.create_api_info()
-        # query params
-        queries = {}
-        queries['InstanceId'] = os.getenv('INSTANCE_ID')
-        queries['JobGroupId'] = job_group_id
+        instance_id = os.getenv('INSTANCE_ID')
         
-        # 动态添加JobsJson参数
-        for i, job_json in enumerate(jobs_json_list, 1):
-            queries[f'JobsJson.{i}'] = json.dumps(job_json, ensure_ascii=False)
+        # 分批处理：每批最多100个任务，避免URL过长
+        batch_size = 100
+        all_jobs_id = []
         
-        # runtime options
-        runtime = util_models.RuntimeOptions()
-        request = open_api_models.OpenApiRequest(
-            query=OpenApiUtilClient.query(queries)
-        )
-        # 复制代码运行请自行打印 API 的返回值
-        # 返回值实际为 Map 类型，可从 Map 中获得三类数据：响应体 body、响应头 headers、HTTP 返回的状态码 statusCode。
-        response = await client.call_api_async(params, request, runtime)
-        return response.body.jobs_id
+        for batch_start in range(0, len(jobs_json_list), batch_size):
+            batch_end = min(batch_start + batch_size, len(jobs_json_list))
+            batch_jobs = jobs_json_list[batch_start:batch_end]
+            
+            # 构建查询参数
+            queries = {}
+            queries['InstanceId'] = instance_id
+            queries['JobGroupId'] = job_group_id
+            
+            # 动态添加JobsJson参数到查询参数中
+            for i, job_json in enumerate(batch_jobs, 1):
+                queries[f'JobsJson.{i}'] = json.dumps(job_json, ensure_ascii=False)
+            
+            # runtime options
+            runtime = util_models.RuntimeOptions()
+            request = open_api_models.OpenApiRequest(
+                query=OpenApiUtilClient.query(queries)
+            )
+            
+            # 调用API
+            response = await client.call_api_async(params, request, runtime)
+            batch_jobs_id = response.body.jobs_id
+            
+            # 如果返回的是单个字符串，转换为列表
+            if isinstance(batch_jobs_id, str):
+                batch_jobs_id = [batch_jobs_id]
+            elif not isinstance(batch_jobs_id, list):
+                batch_jobs_id = list(batch_jobs_id) if batch_jobs_id else []
+            
+            all_jobs_id.extend(batch_jobs_id)
+        
+        return all_jobs_id
 
 
 if __name__ == '__main__':
