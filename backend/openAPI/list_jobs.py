@@ -83,15 +83,13 @@ class Sample:
     @staticmethod
     async def main_async(
         args: List[str],
+        job_ids: List[str]
     ) -> None:
         client = Sample.create_client()
         params = Sample.create_api_info()
         # query params
         queries = {}
-        queries['InstanceId'] = '44f9ce96-c55c-4277-bad9-e7eaa7653644'
-        queries['JobId.1'] = '1754361186153-4493-885b-86b85052aae9'
-        queries['JobId.2'] = '1754361186153-4706-a958-d7043a44637e'
-        queries['JobId.3'] = '1754361186153-4804-bc4c-42c9abb21f4b'
+        queries['InstanceId'] = os.getenv('INSTANCE_ID')
         # runtime options
         runtime = util_models.RuntimeOptions()
         request = open_api_models.OpenApiRequest(

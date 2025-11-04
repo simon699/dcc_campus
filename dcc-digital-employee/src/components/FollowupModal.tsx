@@ -53,6 +53,7 @@ export default function FollowupModal({
   const [followupRecords, setFollowupRecords] = useState<FollowupRecord[]>([]);
   const [taskInfo, setTaskInfo] = useState<TaskInfo | null>(null);
   const [taskStatistics, setTaskStatistics] = useState<TaskStatistics | null>(null);
+  const [jobGroupProgress, setJobGroupProgress] = useState<any>(null); // 任务组进度信息
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +123,17 @@ export default function FollowupModal({
       
       // 只在首次加载时获取任务统计信息
       if (!append) {
+        // 先获取任务组进度信息，用于检查状态
+        try {
+          const progressResponse = await tasksAPI.describeJobGroup({ task_id: selectedTaskId });
+          if (progressResponse.status === 'success' && progressResponse.data) {
+            setJobGroupProgress(progressResponse.data);
+          }
+        } catch (error) {
+          console.error('获取任务组进度信息失败:', error);
+          // 不显示错误，因为这是辅助信息
+        }
+        
         const statisticsResponse = await tasksAPI.getTaskStatistics(selectedTaskId);
         
         if (statisticsResponse.status === 'success') {
@@ -131,21 +143,43 @@ export default function FollowupModal({
         }
       }
 
-      // 获取任务执行情况（用于获取执行记录）- 支持分页
-      const executionResponse = await tasksAPI.queryTaskExecution(selectedTaskId, currentPage, pageSize);
+      // 获取任务执行情况（用于获取执行记录）- 支持分页，只查询已跟进的记录
+      // 根据意向筛选将 interest 映射为 0/1/2 或 undefined
+      const interestMap: Record<string, number | null | undefined> = {
+        all: undefined,
+        pending: null, // null 交给前端过滤，后端只查已跟进
+        unable_to_judge: 0,
+        interested: 1,
+        not_interested: 2,
+      };
+      const interestValue = interestMap[interestFilter];
+      const executionResponse = await tasksAPI.queryTaskExecution(
+        selectedTaskId,
+        currentPage,
+        pageSize,
+        true,
+        true,
+        interestValue === null ? undefined : interestValue
+      );
       
       if (executionResponse.status === 'success') {
         const data = executionResponse.data;
         
         // 只在首次加载时构建任务信息
         if (!append) {
+          // 使用接口返回的实际 task_type，而不是硬编码
+          const actualTaskType = data.task_type || 1;
+          // 使用接口返回的 task_stats 中的 is_completed 来判断是否完成
+          const taskStats = data.task_stats || {};
+          const isCompleted = taskStats.is_completed !== undefined ? taskStats.is_completed : (actualTaskType >= 3);
+          
           const taskInfo: TaskInfo = {
             id: data.task_id,
             task_name: data.task_name,
-            task_type: 3, // 已完成的任务（task_type: 3-外呼完成；4-跟进完成）
+            task_type: actualTaskType, // 使用接口返回的实际任务类型
             create_time: data.query_time,
             leads_count: data.total_jobs,
-            is_completed: true
+            is_completed: isCompleted // 使用接口返回的 is_completed
           };
           setTaskInfo(taskInfo);
           setTotalJobs(data.total_jobs || 0);
@@ -227,7 +261,17 @@ export default function FollowupModal({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTaskId, pageSize]);
+  }, [selectedTaskId, pageSize, interestFilter]);
+
+  // 当意向筛选变化时，重新请求第一页（后端带筛选，前端仍做补充过滤）
+  useEffect(() => {
+    if (!isOpen || !selectedTaskId) return;
+    setPage(1);
+    setHasMore(true);
+    setFollowupRecords([]);
+    fetchTaskData(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interestFilter, isOpen, selectedTaskId]);
 
   // 加载更多数据
   const loadMore = useCallback(async () => {
@@ -253,6 +297,7 @@ export default function FollowupModal({
       setPage(1);
       setHasMore(true);
       setFollowupRecords([]);
+      // 直接调用fetchTaskData，在非追加模式下它总是使用page=1
       fetchTaskData(false);
     };
 
@@ -260,7 +305,7 @@ export default function FollowupModal({
     const interval = setInterval(refreshData, 30000);
     
     return () => clearInterval(interval);
-  }, [isOpen, selectedTaskId]);
+  }, [isOpen, selectedTaskId, fetchTaskData]);
   
   // 滚动加载更多
   useEffect(() => {
@@ -657,6 +702,54 @@ export default function FollowupModal({
             {/* 任务概览 */}
             {activeTab === 'overview' && (
               <div className="space-y-6">
+                {/* 任务组进度信息 */}
+                {jobGroupProgress && jobGroupProgress.progress && (
+                  <div className="p-4 bg-white/5 rounded-lg border border-white/10">
+                    <h4 className="text-white font-medium mb-4">任务执行进度</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                      <div className="text-center p-3 bg-white/5 rounded-lg">
+                        <div className="text-blue-400 font-semibold text-lg">{jobGroupProgress.progress.total_jobs || 0}</div>
+                        <div className="text-gray-400 text-xs">总任务数</div>
+                      </div>
+                      <div className="text-center p-3 bg-white/5 rounded-lg">
+                        <div className="text-green-400 font-semibold text-lg">{jobGroupProgress.progress.total_completed || 0}</div>
+                        <div className="text-gray-400 text-xs">已完成</div>
+                      </div>
+                      <div className="text-center p-3 bg-white/5 rounded-lg">
+                        <div className="text-blue-400 font-semibold text-lg">{jobGroupProgress.progress.executing || 0}</div>
+                        <div className="text-gray-400 text-xs">执行中</div>
+                      </div>
+                      <div className="text-center p-3 bg-white/5 rounded-lg">
+                        <div className="text-yellow-400 font-semibold text-lg">{jobGroupProgress.progress.scheduling || 0}</div>
+                        <div className="text-gray-400 text-xs">调度中</div>
+                      </div>
+                    </div>
+                    {jobGroupProgress.progress.total_jobs > 0 && (
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-gray-400">完成进度</span>
+                          <span className="text-sm text-white">
+                            {Math.round((jobGroupProgress.progress.total_completed / jobGroupProgress.progress.total_jobs) * 100)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-white/10 rounded-full h-2">
+                          <div 
+                            className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                            style={{ 
+                              width: `${(jobGroupProgress.progress.total_completed / jobGroupProgress.progress.total_jobs) * 100}%` 
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                    {jobGroupProgress.status && (
+                      <div className="mt-3 text-xs text-gray-400">
+                        任务组状态: <span className="text-white">{jobGroupProgress.status}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* 任务统计信息 */}
                 {taskStatistics && (
                   <div className="p-4 bg-white/5 rounded-lg border border-white/10">
@@ -804,7 +897,13 @@ export default function FollowupModal({
                     )}
                     
                     {/* 结果统计 */}
-                    <div className="flex items-center space-x-2 ml-auto">
+                    <div className="flex items-center space-x-3 ml-auto">
+                      {loading && (
+                        <div className="flex items-center text-blue-400 text-sm">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                          <span className="ml-2">正在加载...</span>
+                        </div>
+                      )}
                       <span className="text-gray-400 text-sm">
                         筛选结果：{filteredRecords.length}/{followupRecords.length}
                         {totalJobs > 0 && ` / ${totalJobs}`}

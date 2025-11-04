@@ -327,15 +327,22 @@ export const tasksAPI = {
   },
 
   // 查询任务执行情况（新接口）
-  queryTaskExecution: async (taskId: number, page: number = 1, pageSize: number = 20, skipRecording: boolean = true) => {
+  queryTaskExecution: async (taskId: number, page: number = 1, pageSize: number = 20, skipRecording: boolean = true, onlyFollowed: boolean = false, interest?: number | null) => {
     return apiRequest('/query-task-execution', {
       method: 'POST',
-      body: JSON.stringify({
-        task_id: taskId,
-        page: page,
-        page_size: pageSize,
-        skip_recording: skipRecording
-      })
+      body: JSON.stringify((() => {
+        const payload: any = {
+          task_id: taskId,
+          page: page,
+          page_size: pageSize,
+          skip_recording: skipRecording,
+          only_followed: onlyFollowed,
+        };
+        if (interest !== undefined && interest !== null) {
+          payload.interest = interest;
+        }
+        return payload;
+      })())
     });
   },
 
@@ -426,6 +433,14 @@ export const tasksAPI = {
       body: JSON.stringify({
         action: action
       })
+    });
+  },
+
+  // 查询任务组详情和执行情况
+  describeJobGroup: async (params: { job_group_id?: string; task_id?: number }) => {
+    return apiRequest('/describe-job-group', {
+      method: 'POST',
+      body: JSON.stringify(params)
     });
   }
 };

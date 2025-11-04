@@ -242,15 +242,19 @@ export default function Home() {
                   // 跟进Agent：展示跟进中的任务（task_type=3）和跟进完成的任务（task_type=4）
                   const followupInProgressStats = statsByType[3] || { count: 0, leads_count: 0 };
                   const followupCompletedStats = statsByType[4] || { count: 0, leads_count: 0 };
+                  // 外呼进行中的任务（task_type=2）也会进入跟进阶段，所以也应该考虑
+                  const callingInProgressStats = statsByType[2] || { count: 0, leads_count: 0 };
                   
                   // 添加调试信息
                   console.log('DEBUG - 跟进Agent状态判断:', {
+                    callingInProgressCount: callingInProgressStats.count,
                     followupInProgressCount: followupInProgressStats.count,
                     followupCompletedCount: followupCompletedStats.count,
-                    willBeWorking: followupInProgressStats.count > 0
+                    willBeWorking: callingInProgressStats.count > 0 || followupInProgressStats.count > 0
                   });
                   
-                  const newStatus = followupInProgressStats.count > 0 ? 'working' : 'idle';
+                  // 如果有外呼进行中的任务（即将进入跟进）或跟进中的任务，都显示为工作中
+                  const newStatus = (callingInProgressStats.count > 0 || followupInProgressStats.count > 0) ? 'working' : 'idle';
                   console.log('DEBUG - 跟进Agent新状态:', newStatus);
                   
                   return {
@@ -260,7 +264,7 @@ export default function Home() {
                       completed: followupCompletedStats.count, // 跟进完成的任务数（task_type=4）
                       current: followupInProgressStats.count  // 跟进中的任务数（task_type=3）
                     },
-                    // 跟进Agent：只有在跟进中的任务时才显示为工作中，跟进完成时显示为空闲
+                    // 跟进Agent：如果有外呼进行中的任务（即将进入跟进）或跟进中的任务，显示为工作中
                     status: newStatus
                   };
                 default:

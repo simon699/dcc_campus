@@ -168,7 +168,17 @@ app.include_router(config_check_router, prefix="/api")
 async def startup_event():
     """应用启动事件"""
     print("🚀 DCC数字员工服务启动中...")
-    print("💡 提示：自动化任务监控将在前端打开后由前端请求启动")
+    # 自动启动监控任务
+    try:
+        if not auto_task_monitor.is_running:
+            # 使用 asyncio.create_task 在 FastAPI 的事件循环中启动监控任务
+            asyncio.create_task(auto_task_monitor.start_monitoring())
+            print("✅ 自动化任务监控已自动启动")
+        else:
+            print("💡 自动化任务监控已在运行中")
+    except Exception as e:
+        print(f"❌ 自动启动监控任务失败: {str(e)}")
+        print("💡 提示：可以通过 /api/auto-task 接口手动启动")
 
 # 应用关闭事件
 @app.on_event("shutdown")

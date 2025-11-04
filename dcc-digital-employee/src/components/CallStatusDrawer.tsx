@@ -91,6 +91,7 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
   const [pageSize] = useState(20); // 固定每页20条
   const [hasMore, setHasMore] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
+  const [jobGroupProgress, setJobGroupProgress] = useState<any>(null); // 任务组进度信息
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
   // 防抖定时器
@@ -122,6 +123,26 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
       cacheDuration
     });
   };
+
+  // 清除缓存数据
+  const clearCachedData = (cacheKey: string) => {
+    statusCache.delete(cacheKey);
+  };
+
+  // 获取任务组进度信息
+  const fetchJobGroupProgress = useCallback(async () => {
+    if (!isOpen || !taskId) return;
+    
+    try {
+      const response = await tasksAPI.describeJobGroup({ task_id: parseInt(taskId) });
+      if (response.status === 'success' && response.data) {
+        setJobGroupProgress(response.data);
+      }
+    } catch (error) {
+      console.error('获取任务组进度信息失败:', error);
+      // 不显示错误，因为这是辅助信息
+    }
+  }, [isOpen, taskId]);
 
   // 防抖的获取任务详情函数（初始加载时不防抖，直接加载）
   const debouncedFetchCallStatus = useCallback((isInitial: boolean = false) => {
@@ -181,15 +202,13 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
           }
           
           const jobsData = taskData.jobs_data || [];
-          const succeededJobs = jobsData.filter((job: any) => job.Status === "Succeeded").length;
-          const connectedCount = succeededJobs;
-          const notConnectedCount = jobsData.length - connectedCount;
-          
+          // 使用接口返回的task_stats数据
+          const taskStats = taskData.task_stats || {};
           setTaskStatus({
-            is_completed: false,
-            total_calls: totalJobs,
-            connected_calls: connectedCount,
-            not_connected_calls: notConnectedCount,
+            is_completed: taskStats.is_completed || false,
+            total_calls: taskStats.total_calls || totalJobs || 0,
+            connected_calls: taskStats.connected_calls || 0,
+            not_connected_calls: taskStats.not_connected_calls || 0,
             query_time: taskData.query_time
           });
           
@@ -280,16 +299,13 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
       
       // 只在首次加载时更新任务状态信息
       if (!append) {
-        // 根据jobs_data中的Status字段计算当前页的任务状态
-        const succeededJobs = jobsData.filter((job: any) => job.Status === "Succeeded").length;
-        const connectedCount = succeededJobs;
-        const notConnectedCount = jobsData.length - connectedCount;
-        
+        // 使用接口返回的task_stats数据
+        const taskStats = taskData.task_stats || {};
         setTaskStatus({
-          is_completed: false,
-          total_calls: totalJobs,
-          connected_calls: connectedCount,
-          not_connected_calls: notConnectedCount,
+          is_completed: taskStats.is_completed || false,
+          total_calls: taskStats.total_calls || totalJobs || 0,
+          connected_calls: taskStats.connected_calls || 0,
+          not_connected_calls: taskStats.not_connected_calls || 0,
           query_time: taskData.query_time
         });
       }
@@ -360,6 +376,7 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
       setHasMore(true);
       setCallJobs([]);
       setTotalCount(0);
+      setJobGroupProgress(null);
       // 清除之前的请求锁和定时器
       pendingFetchRef.current = null;
       if (debounceTimerRef.current) {
@@ -368,6 +385,8 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
       }
       // 初始加载时不防抖，立即加载（只调用一次）
       fetchCallStatus(false, true);
+      // 获取任务组进度信息
+      fetchJobGroupProgress();
     } else {
       // 关闭时清除请求锁
       pendingFetchRef.current = null;
@@ -382,7 +401,7 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
       pendingFetchRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, taskId]); // 移除 debouncedFetchCallStatus 依赖，直接调用 fetchCallStatus
+  }, [isOpen, taskId, fetchJobGroupProgress]); // 移除 debouncedFetchCallStatus 依赖，直接调用 fetchCallStatus
 
   // 滚动监听，实现滚动加载
   useEffect(() => {
@@ -530,7 +549,16 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
   };
 
   const handleRefresh = () => {
-    fetchCallStatus();
+    // 清除相关缓存，确保刷新时发起新请求
+    const cacheKey = `task_execution_${taskId}_1_${pageSize}`;
+    clearCachedData(cacheKey);
+    // 重置分页状态
+    setPage(1);
+    setHasMore(true);
+    // 调用fetchCallStatus，跳过时间间隔检查
+    fetchCallStatus(false, true);
+    // 刷新任务组进度信息
+    fetchJobGroupProgress();
     // 调用父组件的刷新回调函数，更新 leads_task_list 数据
     onRefresh?.();
   };
@@ -616,42 +644,79 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
           </div>
 
           {/* 任务状态概览 */}
-          {taskStatus && (
+          {(taskStatus || jobGroupProgress) && (
             <div className="bg-white/5 border border-white/10 rounded-lg p-4 mb-6">
               <h3 className="text-lg font-semibold text-white mb-3">任务状态概览</h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div className="bg-white/5 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">任务状态</div>
                   <div className={`text-lg font-medium ${
-                    taskStatus.is_completed ? 'text-green-400' : 'text-blue-400'
+                    taskStatus?.is_completed ? 'text-green-400' : 'text-blue-400'
                   }`}>
-                    {taskStatus.is_completed ? '已完成' : '执行中'}
+                    {taskStatus?.is_completed ? '已完成' : '执行中'}
                   </div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">总任务数</div>
                   <div className="text-lg font-medium text-white">
-                    {taskStatus.total_calls || 0}
+                    {jobGroupProgress?.progress?.total_jobs || taskStatus?.total_calls || 0}
                   </div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3">
-                  <div className="text-sm text-gray-400 mb-1">已接通任务数</div>
+                  <div className="text-sm text-gray-400 mb-1">已接通</div>
                   <div className="text-lg font-medium text-green-400">
-                    {taskStatus.connected_calls || 0}
+                    {jobGroupProgress?.progress?.total_completed || taskStatus?.connected_calls || 0}
                   </div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3">
-                  <div className="text-sm text-gray-400 mb-1">未接通任务数</div>
+                  <div className="text-sm text-gray-400 mb-1">未接通</div>
+                  <div className="text-lg font-medium text-red-400">
+                    {jobGroupProgress?.progress?.failed || 0}
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-1">调度中</div>
                   <div className="text-lg font-medium text-yellow-400">
-                    {taskStatus.not_connected_calls || 0}
+                    {jobGroupProgress?.progress?.scheduling || 0}
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-1">执行中</div>
+                  <div className="text-lg font-medium text-blue-400">
+                    {jobGroupProgress?.progress?.executing || 0}
                   </div>
                 </div>
               </div>
-              {taskStatus.query_time && (
-                <div className="mt-3 text-xs text-gray-400">
-                  查询时间: {taskStatus.query_time}
+              {jobGroupProgress?.progress?.total_jobs > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-400">完成进度</span>
+                    <span className="text-sm text-white">
+                      {Math.round((jobGroupProgress.progress.total_completed / jobGroupProgress.progress.total_jobs) * 100)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-white/10 rounded-full h-2">
+                    <div 
+                      className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${(jobGroupProgress.progress.total_completed / jobGroupProgress.progress.total_jobs) * 100}%` 
+                      }}
+                    ></div>
+                  </div>
                 </div>
               )}
+              <div className="mt-3 flex items-center justify-between">
+                {taskStatus?.query_time && (
+                  <div className="text-xs text-gray-400">
+                    查询时间: {taskStatus.query_time}
+                  </div>
+                )}
+                {jobGroupProgress?.status && (
+                  <div className="text-xs text-gray-400">
+                    任务组状态: <span className="text-white">{jobGroupProgress.status}</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

@@ -350,21 +350,21 @@ class AutoTaskMonitor:
                     "message": f"call_job_id为{call_job_id}的记录已存在跟进记录，无需重复创建"
                 }
             
-            # 与 API 统一：如果通话失败也要生成固定备注的跟进记录
+            # 与 API 统一：
+            # - 若通话失败，生成固定备注的跟进记录
+            # - 若无通话记录（且非失败），也生成“待人工判定”的跟进记录，避免流程卡住
             if call_status == 'Failed':
                 leads_remark = "客户未接电话，未打通；"
                 next_follow_time = None
                 is_interested = 0
             elif not call_conversation:
-                return {
-                    "status": "error", 
-                    "code": 4002,
-                    "message": f"call_job_id为{call_job_id}的记录中没有通话记录"
-                }
+                leads_remark = "缺少通话记录，待人工判定；"
+                next_follow_time = None
+                is_interested = 0
             
             # 2. 将call_conversation作为prompt调用AI接口
             try:
-                if call_status != 'Failed':
+                if call_status != 'Failed' and call_conversation:
                     # 如果call_conversation是JSON字符串，需要解析
                     if isinstance(call_conversation, str):
                         conversation_data = json.loads(call_conversation)
