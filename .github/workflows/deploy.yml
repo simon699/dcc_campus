@@ -23,29 +23,24 @@ jobs:
           envs: GITHUB_SHA,DEPLOY_WORKDIR,SERVER_WORKDIR
           script: |
             set -e
-            # 解析工作目录（优先 Secrets，其次常见候选路径）
-            CANDIDATES=()
-            if [ -n "${DEPLOY_WORKDIR}" ]; then CANDIDATES+=("${DEPLOY_WORKDIR}"); fi
-            if [ -n "${SERVER_WORKDIR}" ]; then CANDIDATES+=("${SERVER_WORKDIR}"); fi
-            CANDIDATES+=(
-              "$HOME/DCC数字员工/V1.0"
-              "/root/DCC数字员工/V1.0"
-              "/home/ubuntu/DCC数字员工/V1.0"
-              "/opt/dcc-employee"
-            )
-            FOUND=""
-            for p in "${CANDIDATES[@]}"; do
-              if [ -d "$p" ]; then
-                FOUND="$p"
-                break
+            # 解析工作目录（POSIX 兼容写法）
+            WORKDIR=""
+            if [ -n "${DEPLOY_WORKDIR}" ] && [ -d "${DEPLOY_WORKDIR}" ]; then
+              WORKDIR="${DEPLOY_WORKDIR}"
+            fi
+            if [ -z "$WORKDIR" ] && [ -n "${SERVER_WORKDIR}" ] && [ -d "${SERVER_WORKDIR}" ]; then
+              WORKDIR="${SERVER_WORKDIR}"
+            fi
+            for p in "$HOME/DCC数字员工/V1.0" "/root/DCC数字员工/V1.0" "/home/ubuntu/DCC数字员工/V1.0" "/opt/dcc-employee"; do
+              if [ -z "$WORKDIR" ] && [ -d "$p" ]; then
+                WORKDIR="$p"
               fi
             done
-            if [ -z "$FOUND" ]; then
+            if [ -z "$WORKDIR" ]; then
               echo "未找到项目目录，请设置 Secrets DEPLOY_WORKDIR 或 SERVER_WORKDIR 指向服务器实际项目路径"
-              echo "已尝试路径: ${CANDIDATES[*]}"
               exit 1
             fi
-            cd "$FOUND"
+            cd "$WORKDIR"
             echo "Using release: $GITHUB_SHA"
             # 拉取最新代码（如服务器直接拉主仓库）
             if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
