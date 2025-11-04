@@ -436,6 +436,8 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
     
     const statusLower = status.toLowerCase();
     switch (statusLower) {
+      case 'paused':
+        return 'bg-yellow-500/20 text-yellow-300';
       case 'executing':
         return 'bg-blue-500/20 text-blue-300';
       case 'succeeded':
@@ -484,6 +486,7 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
     const statusMap: { [key: string]: string } = {
       'Executing': '正在拨打',
       'Succeeded': '已接通',
+      'Paused': '暂停',
       'NoAnswer': '未接通-无人接听',
       'NotExist': '未接通-空号',
       'Busy': '未接通-占线',
@@ -621,6 +624,22 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
     }
   };
 
+  // 任务状态概览统计值
+  const totalJobsOverview = (jobGroupProgress?.progress?.total_jobs ?? taskStatus?.total_calls ?? 0) as number;
+  const connectedOverview = (jobGroupProgress?.progress?.total_completed ?? taskStatus?.connected_calls ?? 0) as number;
+  const notConnectedOverview = (jobGroupProgress?.progress?.failed ?? taskStatus?.not_connected_calls ?? 0) as number;
+  const executingCombinedOverview = ((jobGroupProgress?.progress?.executing ?? 0) + (jobGroupProgress?.progress?.scheduling ?? 0)) as number;
+  const notStartedOverview = Math.max(
+    totalJobsOverview - (connectedOverview + notConnectedOverview + executingCombinedOverview),
+    0
+  );
+  const progressPercentOverview = totalJobsOverview > 0
+    ? Math.round(((connectedOverview + notConnectedOverview) / totalJobsOverview) * 100)
+    : 0;
+  const isPaused = (taskType === 5)
+    || ((jobGroupProgress?.status && typeof jobGroupProgress.status === 'string' && jobGroupProgress.status.toLowerCase() === 'paused') as boolean)
+    || (taskStatus?.is_paused === true);
+
   if (!isOpen) return null;
 
   return (
@@ -647,60 +666,47 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
           {(taskStatus || jobGroupProgress) && (
             <div className="bg-white/5 border border-white/10 rounded-lg p-4 mb-6">
               <h3 className="text-lg font-semibold text-white mb-3">任务状态概览</h3>
+
               <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div className="bg-white/5 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">任务状态</div>
                   <div className={`text-lg font-medium ${
-                    taskStatus?.is_completed ? 'text-green-400' : 'text-blue-400'
+                    isPaused ? 'text-yellow-300' : (taskStatus?.is_completed ? 'text-green-400' : 'text-blue-400')
                   }`}>
-                    {taskStatus?.is_completed ? '已完成' : '执行中'}
+                    {isPaused ? '暂停中' : (taskStatus?.is_completed ? '已完成' : '执行中')}
                   </div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3">
-                  <div className="text-sm text-gray-400 mb-1">总任务数</div>
-                  <div className="text-lg font-medium text-white">
-                    {jobGroupProgress?.progress?.total_jobs || taskStatus?.total_calls || 0}
-                  </div>
+                  <div className="text-sm text-gray-400 mb-1">总外呼量</div>
+                  <div className="text-lg font-medium text-white">{totalJobsOverview}</div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">已接通</div>
-                  <div className="text-lg font-medium text-green-400">
-                    {jobGroupProgress?.progress?.total_completed || taskStatus?.connected_calls || 0}
-                  </div>
+                  <div className="text-lg font-medium text-green-400">{connectedOverview}</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-1">未开始</div>
+                  <div className="text-lg font-medium text-gray-300">{notStartedOverview}</div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">未接通</div>
-                  <div className="text-lg font-medium text-red-400">
-                    {jobGroupProgress?.progress?.failed || 0}
-                  </div>
-                </div>
-                <div className="bg-white/5 rounded-lg p-3">
-                  <div className="text-sm text-gray-400 mb-1">调度中</div>
-                  <div className="text-lg font-medium text-yellow-400">
-                    {jobGroupProgress?.progress?.scheduling || 0}
-                  </div>
+                  <div className="text-lg font-medium text-red-400">{notConnectedOverview}</div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">执行中</div>
-                  <div className="text-lg font-medium text-blue-400">
-                    {jobGroupProgress?.progress?.executing || 0}
-                  </div>
+                  <div className="text-lg font-medium text-blue-400">{executingCombinedOverview}</div>
                 </div>
               </div>
-              {jobGroupProgress?.progress?.total_jobs > 0 && (
+              {totalJobsOverview > 0 && (
                 <div className="mt-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-gray-400">完成进度</span>
-                    <span className="text-sm text-white">
-                      {Math.round((jobGroupProgress.progress.total_completed / jobGroupProgress.progress.total_jobs) * 100)}%
-                    </span>
+                    <span className="text-sm text-gray-400">外呼进度</span>
+                    <span className="text-sm text-white">{progressPercentOverview}%</span>
                   </div>
                   <div className="w-full bg-white/10 rounded-full h-2">
                     <div 
                       className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                      style={{ 
-                        width: `${(jobGroupProgress.progress.total_completed / jobGroupProgress.progress.total_jobs) * 100}%` 
-                      }}
+                      style={{ width: `${progressPercentOverview}%` }}
                     ></div>
                   </div>
                 </div>
@@ -713,7 +719,7 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
                 )}
                 {jobGroupProgress?.status && (
                   <div className="text-xs text-gray-400">
-                    任务组状态: <span className="text-white">{jobGroupProgress.status}</span>
+                    任务组状态: <span className="text-white">{getStatusText(jobGroupProgress.status)}</span>
                   </div>
                 )}
               </div>

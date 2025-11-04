@@ -121,10 +121,18 @@ def sync_task_jobs(task_id: int = 54, page_size: int = 100):
     3) 逐个 job_id 调用 ListJobs，更新通话字段；
     4) 触发 AI 分析（get_leads_follow_id），回写是否有意向与备注。
     """
-    rows = execute_query(
-        "SELECT job_group_id FROM call_tasks WHERE id=%s",
+    # 仅当任务处于开始外呼(2)或外呼完成(3)时才进行获取；暂停(5)等其他状态直接跳过
+    task_rows = execute_query(
+        "SELECT job_group_id, task_type FROM call_tasks WHERE id=%s",
         (task_id,),
     )
+    if not task_rows:
+        print(f"[sync] 任务 {task_id} 不存在")
+        return
+    if task_rows[0].get('task_type') not in (2, 3):
+        print(f"[sync] 任务 {task_id} 当前 task_type={task_rows[0].get('task_type')}，非(2/3)，跳过获取")
+        return
+    rows = task_rows
     if not rows or not rows[0].get('job_group_id'):
         print(f"[sync] 任务 {task_id} 未找到 job_group_id")
         return

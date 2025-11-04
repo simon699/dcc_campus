@@ -430,6 +430,17 @@ async def get_task_stats(
                         current_task_result = execute_query(current_task_query, (task_id,))
                         current_task_type = current_task_result[0]['task_type'] if current_task_result else None
                         
+                        # 如果任务组状态为 Paused，则标记为暂停 task_type = 5
+                        if isinstance(job_group_status, str) and job_group_status.lower() == 'paused':
+                            if current_task_type != 5:
+                                update_task_type_query = """
+                                    UPDATE call_tasks 
+                                    SET task_type = 5 
+                                    WHERE id = %s
+                                """
+                                execute_update(update_task_type_query, (task_id,))
+                                print(f"任务 {task_id} ({task_name}) 根据任务组状态更新为已暂停（task_type=5）")
+                        
                         # 如果任务组状态为 Completed/Finished/Stopped 且进度显示真的完成，且当前任务状态不是已完成，更新任务状态
                         if job_group_status in ['Completed', 'Finished', 'Stopped'] and is_really_completed and current_task_type and current_task_type < 3:
                             update_task_type_query = """
@@ -1264,6 +1275,19 @@ async def query_task_execution(
         
         task_info = task_result[0]
         job_group_id = task_info.get('job_group_id')
+        # 手动调用：仅当任务为暂停(5)时跳过；其他状态(含4)允许执行获取
+        if task_info.get('task_type') == 5:
+            return {
+                "status": "success",
+                "code": 200,
+                "message": f"任务当前状态为 {task_info.get('task_type')}（暂停），不执行获取",
+                "data": {
+                    "task_id": request.task_id,
+                    "task_type": task_info.get('task_type'),
+                    "job_group_id": job_group_id,
+                    "skipped": True
+                }
+            }
         
         # 如果有 job_group_id，先调用 describe-job-group 检查任务组状态
         job_group_status = None

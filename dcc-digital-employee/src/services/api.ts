@@ -245,7 +245,21 @@ export const tasksAPI = {
 
   // 获取任务详情
   getCallTaskDetails: async (taskId: string) => {
-    return apiRequest(`/call-tasks/list?task_id=${taskId}`);
+    // 后端无 /call-tasks/list，改为获取 /tasks 后前端筛选
+    const list = await apiRequest('/tasks');
+    try {
+      const tasks = list?.data || [];
+      const idNum = parseInt(taskId as string, 10);
+      const found = Array.isArray(tasks) ? tasks.find((t: any) => t.id === idNum) : null;
+      return {
+        status: 'success',
+        code: 200,
+        message: found ? 'ok' : 'not found',
+        data: found || null
+      };
+    } catch (e) {
+      return list;
+    }
   },
 
 

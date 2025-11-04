@@ -132,6 +132,18 @@ export default function MonitorDrawer({ isOpen, onClose, callingTasks, onTasksUp
   }, [tasks, onTasksUpdate, onClose]);
 
   // 使用useMemo优化计算，减少重复渲染
+  const isPausedTask = useCallback((task: CallingTask) => {
+    const statusLower = typeof task.status === 'string' ? task.status.toLowerCase() : '';
+    return task.task_type === 5 || statusLower === 'paused';
+  }, []);
+
+  const isExecutingTask = useCallback((task: CallingTask) => {
+    const statusLower = typeof task.status === 'string' ? task.status.toLowerCase() : '';
+    // 若后端未及时更新 task_type，但 status 显示 Paused，则不计入执行中
+    if (statusLower === 'paused') return false;
+    return task.task_type === 2;
+  }, []);
+
   const displayTasks = useMemo(() => {
     // 显示 task_type = 2、3 或 5 的任务
     const filtered = tasks.filter(task => task.task_type === 2 || task.task_type === 3 || task.task_type === 5);
@@ -141,15 +153,20 @@ export default function MonitorDrawer({ isOpen, onClose, callingTasks, onTasksUp
   
   // 统计数据基于所有任务计算
   const executingTasks = useMemo(() => {
-    const count = tasks.filter(task => task.task_type === 2).length;
+    const count = tasks.filter(task => isExecutingTask(task)).length;
     console.log('DEBUG - executingTasks:', count, 'tasks:', tasks);
     return count;
-  }, [tasks]);
+  }, [tasks, isExecutingTask]);
   const completedTasks = useMemo(() => {
     const count = tasks.filter(task => task.task_type === 3).length;
     console.log('DEBUG - completedTasks:', count);
     return count;
   }, [tasks]);
+  const pausedTasks = useMemo(() => {
+    const count = tasks.filter(task => isPausedTask(task)).length;
+    console.log('DEBUG - pausedTasks:', count);
+    return count;
+  }, [tasks, isPausedTask]);
   const totalLeads = useMemo(() => {
     const sum = tasks.reduce((sum, task) => sum + (task.targetCount || 0), 0);
     console.log('DEBUG - totalLeads:', sum, 'tasks with targetCount:', tasks.map(t => ({ id: t.id, targetCount: t.targetCount })));
@@ -201,8 +218,8 @@ export default function MonitorDrawer({ isOpen, onClose, callingTasks, onTasksUp
                     <div className="w-3 h-3 bg-blue-400 rounded-full mr-3"></div>
                     <h3 className="text-lg font-semibold text-white">外呼Agent状态</h3>
                   </div>
-                  <span className="text-blue-300 text-sm font-medium">
-                    {executingTasks > 0 ? '工作中' : '空闲中'}
+                  <span className={`${executingTasks > 0 ? 'text-blue-300' : (pausedTasks > 0 ? 'text-yellow-300' : 'text-blue-300')} text-sm font-medium`}>
+                    {executingTasks > 0 ? '工作中' : (pausedTasks > 0 ? '已暂停' : '空闲中')}
                   </span>
                 </div>
                 
@@ -223,7 +240,7 @@ export default function MonitorDrawer({ isOpen, onClose, callingTasks, onTasksUp
                 )}
 
                 {/* 统计信息 */}
-                <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-4 text-center">
                   <div className="bg-white/5 rounded-lg p-3">
                     <div className="text-blue-400 font-bold text-lg">
                       {executingTasks}
@@ -235,6 +252,12 @@ export default function MonitorDrawer({ isOpen, onClose, callingTasks, onTasksUp
                       {completedTasks}
                     </div>
                     <div className="text-gray-400 text-xs">已完成任务</div>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-3">
+                    <div className="text-yellow-300 font-bold text-lg">
+                      {pausedTasks}
+                    </div>
+                    <div className="text-gray-400 text-xs">暂停中任务</div>
                   </div>
                   <div className="bg-white/5 rounded-lg p-3">
                     <div className="text-purple-400 font-bold text-lg">
@@ -285,14 +308,14 @@ export default function MonitorDrawer({ isOpen, onClose, callingTasks, onTasksUp
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                                 </svg>
                               </>
-                            ) : task.task_type === 2 ? (
+                            ) : isExecutingTask(task) ? (
                               <>
                                 <span className="text-blue-300 text-sm font-medium">执行中</span>
                                 <svg className="w-4 h-4 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
                                 </svg>
                               </>
-                            ) : task.task_type === 5 ? (
+                            ) : isPausedTask(task) ? (
                               <>
                                 <span className="text-yellow-300 text-sm font-medium">已暂停</span>
                                 <svg className="w-4 h-4 text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
