@@ -13,6 +13,10 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          DEPLOY_WORKDIR: ${{ secrets.DEPLOY_WORKDIR }}
+          SERVER_WORKDIR: ${{ secrets.SERVER_WORKDIR }}
         with:
           # 支持两套命名：优先 DEPLOY_*，没有则回退到 SERVER_*
           host: ${{ secrets.DEPLOY_HOST || secrets.SERVER_HOST }}
