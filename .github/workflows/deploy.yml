@@ -14,10 +14,11 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
-          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          # 支持两套命名：优先 DEPLOY_*，没有则回退到 SERVER_*
+          host: ${{ secrets.DEPLOY_HOST || secrets.SERVER_HOST }}
+          username: ${{ secrets.DEPLOY_USER || secrets.SERVER_USER }}
+          key: ${{ secrets.DEPLOY_KEY || secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || secrets.SERVER_PORT || 22 }}
           script_stop: true
           envs: GITHUB_SHA
           script: |
