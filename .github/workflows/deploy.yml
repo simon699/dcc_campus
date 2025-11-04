@@ -1,3 +1,43 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          envs: GITHUB_SHA
+          script: |
+            set -e
+            cd /Users/wedo/Documents/product/DCC数字员工/V1.0
+            echo "Using release: $GITHUB_SHA"
+            # 拉取最新代码（如服务器直接拉主仓库）
+            if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+              git fetch --all --prune
+              git reset --hard origin/main
+            fi
+
+            # 前端重启（脚本内会安装依赖、构建、启动）
+            export GITHUB_SHA="$GITHUB_SHA"
+            ./restart-frontend.sh
+
+            # 如有修改 Nginx 配置，重载 Nginx（不会中断连接）
+            if command -v nginx >/dev/null 2>&1; then
+              sudo nginx -t && sudo nginx -s reload || true
+            fi
 name: DCC数字员工系统 - 自动部署
 
 on:
