@@ -28,150 +28,20 @@ export default function MonitorDrawer({ isOpen, onClose, callingTasks, onTasksUp
   const [showCallStatus, setShowCallStatus] = useState(false);
   const [selectedTask, setSelectedTask] = useState<CallingTask | null>(null);
   const [tasks, setTasks] = useState<CallingTask[]>(callingTasks);
-  const [isLoading, setIsLoading] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastCheckRef = useRef<{ [key: string]: number }>({});
-  const pendingRequestsRef = useRef<Set<string>>(new Set()); // 防止重复请求
 
   // 当callingTasks更新时，同步更新本地状态
   useEffect(() => {
     setTasks(callingTasks);
   }, [callingTasks]);
 
-  // 定期检查任务状态 - 优化版本
-  useEffect(() => {
-    if (!isOpen) {
-      // 关闭抽屉时清除定时器
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      return;
-    }
-
-    let initialCheckTimer: NodeJS.Timeout | null = null;
-
-    const checkTaskStatus = async () => {
-      // 防止重复调用
-      if (isLoading) return;
-      
-      setIsLoading(true);
-      try {
-        const currentTime = Date.now();
-        const updatedTasks = await Promise.all(
-          tasks.map(async (task) => {
-            // 检查是否需要更新（每个任务至少间隔60秒才更新一次）
-            const lastCheck = lastCheckRef.current[task.id] || 0;
-            // 如果最近30秒内查询过，或者正在查看该任务，跳过更新
-            if (currentTime - lastCheck < 30000 || (selectedTask && selectedTask.id === task.id)) {
-              return task; // 跳过更新
-            }
-
-            try {
-              // 优化：只查询第一页20条数据，跳过录音获取，快速获取状态
-              const response = await tasksAPI.queryTaskExecution(parseInt(task.id), 1, 20, true);
-              if (response.status === 'success') {
-                const taskData = response.data;
-                // 更新最后检查时间
-                lastCheckRef.current[task.id] = currentTime;
-                
-                // 根据jobs_data中的Status字段判断任务状态
-                const jobsData = taskData.jobs_data || [];
-                const succeededJobs = jobsData.filter((job: any) => job.Status === "Succeeded").length;
-                const schedulingJobs = jobsData.filter((job: any) => job.Status === "Scheduling").length;
-                const totalJobs = taskData.total_jobs || 0; // 使用总数而不是当前页数据
-                
-                // 如果所有任务都是Succeeded状态，则认为任务完成
-                const isCompleted = totalJobs > 0 && succeededJobs === totalJobs;
-                const hasError = taskData.error_count > 0;
-                
-                console.log(`任务 ${task.id} 状态计算:`, {
-                  totalJobs,
-                  succeededJobs,
-                  schedulingJobs,
-                  isCompleted,
-                  originalTaskType: taskData.task_type
-                });
-                
-                // 使用API返回的task_type，如果没有则根据完成状态推断
-                const newTaskType = taskData.task_type || (isCompleted ? 3 : 2);
-                
-                return {
-                  ...task,
-                  status: isCompleted ? 'completed' : (newTaskType === 1 ? 'pending' : 'calling'),
-                  task_type: newTaskType,
-                  total_jobs: totalJobs,
-                  updated_count: succeededJobs,
-                  error_count: taskData.error_count,
-                  // 确保保持其他重要字段
-                  targetCount: task.targetCount,
-                  name: task.name,
-                  createdAt: task.createdAt
-                };
-              }
-            } catch (error) {
-              console.error(`查询任务 ${task.id} 执行情况失败:`, error);
-              // 在API调用失败时，保持原有状态
-              return task;
-            }
-          })
-        );
-        
-        // 只有当有实际更新时才设置状态
-        const hasChanges = updatedTasks.some((task, index) => {
-          const currentTask = tasks[index];
-          if (!task || !currentTask) return false;
-          const changed = task.task_type !== currentTask.task_type || 
-                 task.status !== currentTask.status;
-          if (changed) {
-            console.log('DEBUG - Task changed:', currentTask.id, 'from', currentTask.task_type, 'to', task.task_type);
-          }
-          return changed;
-        });
-        
-        if (hasChanges) {
-          const validTasks = updatedTasks.filter((task): task is CallingTask => task !== undefined);
-          console.log('DEBUG - Task status updated:', validTasks.length, 'tasks');
-          setTasks(validTasks);
-          // 通知父组件任务状态已更新
-          if (onTasksUpdate) {
-            onTasksUpdate(validTasks);
-          }
-        }
-      } catch (error) {
-        console.error('批量检查任务状态失败:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    // 延迟检查，避免打开时立即请求（给用户一点时间看到界面）
-    initialCheckTimer = setTimeout(() => {
-      checkTaskStatus();
-    }, 500);
-
-    // 每60秒检查一次任务状态（减少间隔以提高响应性）
-    intervalRef.current = setInterval(checkTaskStatus, 60000);
-    
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      if (initialCheckTimer) {
-        clearTimeout(initialCheckTimer);
-      }
-    };
-  }, [isOpen, tasks, isLoading, onTasksUpdate, selectedTask]);
+  // 已移除自动轮询逻辑 - 不再定时刷新任务状态
+  // 只有在点击任务卡片时，才会打开 CallStatusDrawer 并查询详情
 
   const handleTaskClick = useCallback((task: CallingTask) => {
     // 直接显示任务详情抽屉，不发起请求
     // CallStatusDrawer 会自己负责加载数据，避免重复请求
     setSelectedTask(task);
     setShowCallStatus(true);
-    
-    // 更新最后检查时间，防止定时器重复查询
-    lastCheckRef.current[task.id] = Date.now();
   }, []);
 
   const handleClose = useCallback(() => {

@@ -1056,16 +1056,17 @@ async def query_task_execution(
         
         task_info = task_result[0]
         
-        # 1. 在leads_task_list中找到对应task_id的call_job_id（优化：只查询需要的字段）
-        leads_query = """
-            SELECT call_job_id
+        # 1. 优化：在数据库层面分页查询 call_job_id，而不是查询所有记录后再分页
+        # 先查询总数
+        count_query = """
+            SELECT COUNT(*) as total
             FROM leads_task_list 
             WHERE task_id = %s AND call_job_id IS NOT NULL AND call_job_id != ''
         """
+        count_result = execute_query(count_query, (request.task_id,))
+        total_jobs = count_result[0]['total'] if count_result and count_result[0].get('total') else 0
         
-        leads_result = execute_query(leads_query, (request.task_id,))
-        
-        if not leads_result:
+        if total_jobs == 0:
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -1075,10 +1076,24 @@ async def query_task_execution(
                 }
             )
         
-        # 提取所有call_job_id
-        call_job_ids = [lead['call_job_id'] for lead in leads_result if lead['call_job_id']]
+        # 计算分页信息
+        page_size = max(1, request.page_size)  # 确保每页数量至少为1
+        total_pages = (total_jobs + page_size - 1) // page_size  # 向上取整
+        page = max(1, min(request.page, total_pages))  # 确保页码在有效范围内
         
-        if not call_job_ids:
+        # 在数据库层面分页查询当前页的 call_job_id
+        offset = (page - 1) * page_size
+        leads_query = """
+            SELECT call_job_id
+            FROM leads_task_list 
+            WHERE task_id = %s AND call_job_id IS NOT NULL AND call_job_id != ''
+            ORDER BY id
+            LIMIT %s OFFSET %s
+        """
+        
+        leads_result = execute_query(leads_query, (request.task_id, page_size, offset))
+        
+        if not leads_result:
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -1088,16 +1103,18 @@ async def query_task_execution(
                 }
             )
         
-        # 计算分页信息
-        total_jobs = len(call_job_ids)
-        total_pages = (total_jobs + request.page_size - 1) // request.page_size  # 向上取整
-        page = max(1, min(request.page, total_pages))  # 确保页码在有效范围内
-        page_size = max(1, request.page_size)  # 确保每页数量至少为1
+        # 提取当前页的call_job_id
+        paginated_call_job_ids = [lead['call_job_id'] for lead in leads_result if lead.get('call_job_id')]
         
-        # 计算分页切片
-        start_idx = (page - 1) * page_size
-        end_idx = start_idx + page_size
-        paginated_call_job_ids = call_job_ids[start_idx:end_idx]
+        if not paginated_call_job_ids:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "error",
+                    "code": 4009,
+                    "message": "没有有效的call_job_id"
+                }
+            )
         
         # 2. 调用list_jobs接口获取任务执行状态（只查询当前页的数据）
         
@@ -1127,12 +1144,8 @@ async def query_task_execution(
         updated_count = 0
         error_count = 0
         
-        # 计算分页信息（如果还没有计算）
+        # 如果没有获取到job数据，直接返回空结果（total_jobs已在前面计算）
         if not jobs_data:
-            total_jobs = len(call_job_ids)
-            total_pages = (total_jobs + request.page_size - 1) // request.page_size if total_jobs > 0 else 0
-            page = max(1, min(request.page, total_pages)) if total_pages > 0 else 1
-            page_size = max(1, request.page_size)
             
             return {
                 "status": "success",
@@ -1155,6 +1168,42 @@ async def query_task_execution(
                     }
                 }
             }
+        
+        # 优化：批量查询所有job的当前状态，避免N+1查询问题
+        job_ids = [job.get('JobId') for job in jobs_data if job.get('JobId')]
+        
+        # 批量查询所有job的当前数据状态
+        current_data_map = {}
+        follow_data_map = {}
+        
+        if job_ids:
+            # 一次性查询所有job的当前状态
+            placeholders = ','.join(['%s'] * len(job_ids))
+            batch_query = f"""
+                SELECT call_job_id, call_status, planed_time, call_task_id, 
+                       call_conversation, calling_number, recording_url,
+                       is_interested, leads_follow_id
+                FROM leads_task_list 
+                WHERE task_id = %s AND call_job_id IN ({placeholders})
+            """
+            batch_result = execute_query(batch_query, (request.task_id, *job_ids))
+            
+            # 构建字典，O(1) 查找
+            current_data_map = {row['call_job_id']: row for row in batch_result} if batch_result else {}
+            
+            # 批量查询跟进数据
+            follow_ids = [row['leads_follow_id'] for row in batch_result if row.get('leads_follow_id')]
+            if follow_ids:
+                follow_placeholders = ','.join(['%s'] * len(follow_ids))
+                follow_batch_query = f"""
+                    SELECT id, leads_id, follow_time, leads_remark, 
+                           frist_follow_time, new_follow_time, next_follow_time,
+                           is_arrive, frist_arrive_time
+                    FROM dcc_leads_follow 
+                    WHERE id IN ({follow_placeholders})
+                """
+                follow_batch_result = execute_query(follow_batch_query, follow_ids)
+                follow_data_map = {row['id']: row for row in follow_batch_result} if follow_batch_result else {}
         
         # 用于检查所有任务是否都完成
         all_tasks_succeeded = True
@@ -1196,92 +1245,63 @@ async def query_task_execution(
                     except:
                         call_time = None
                 
+                # 优化：从批量查询的结果中获取当前数据，而不是单独查询
+                current_data = current_data_map.get(job_id, {})
+                current_status = current_data.get('call_status')
+                current_plan_time = current_data.get('planed_time')
+                current_call_task_id = current_data.get('call_task_id')
+                current_conversation = current_data.get('call_conversation')
+                current_calling_number = current_data.get('calling_number')
+                current_recording_url = current_data.get('recording_url')
+                
                 # 获取录音URL - 如果skip_recording为True，跳过耗时操作
                 recording_url = None
                 if not request.skip_recording and job_status == 'Succeeded' and call_task_id:
-                    # 检查当前recording_url状态（批量查询优化）
-                    current_recording_url = None
-                    try:
-                        check_recording_query = """
-                            SELECT recording_url 
-                            FROM leads_task_list 
-                            WHERE task_id = %s AND call_job_id = %s
-                        """
-                        recording_result = execute_query(check_recording_query, (request.task_id, job_id))
-                        if recording_result:
-                            current_recording_url = recording_result[0].get('recording_url')
+                    # 使用批量查询的结果
+                    current_recording_url = current_recording_url
                     
-                        # 获取新的录音URL（这是最耗时的操作）
-                        try:
-                            new_recording_url = DownloadRecordingSample.main([], task_id=call_task_id)
-                            if new_recording_url:
-                                recording_url = new_recording_url
-                            elif current_recording_url:
-                                recording_url = current_recording_url
-                        except Exception as e:
-                            print(f"获取录音URL失败 - call_task_id: {call_task_id}, 错误: {str(e)}")
-                            if current_recording_url:
-                                recording_url = current_recording_url
+                    # 获取新的录音URL（这是最耗时的操作）
+                    try:
+                        new_recording_url = DownloadRecordingSample.main([], task_id=call_task_id)
+                        if new_recording_url:
+                            recording_url = new_recording_url
+                        elif current_recording_url:
+                            recording_url = current_recording_url
                     except Exception as e:
-                        print(f"检查当前recording_url失败 - job_id: {job_id}, 错误: {str(e)}")
+                        print(f"获取录音URL失败 - call_task_id: {call_task_id}, 错误: {str(e)}")
+                        if current_recording_url:
+                            recording_url = current_recording_url
                 elif job_status == 'Succeeded' and call_task_id:
-                    # 如果跳过录音获取，但已有录音URL，从数据库读取
-                    try:
-                        check_recording_query = """
-                            SELECT recording_url 
-                            FROM leads_task_list 
-                            WHERE task_id = %s AND call_job_id = %s
-                        """
-                        recording_result = execute_query(check_recording_query, (request.task_id, job_id))
-                        if recording_result and recording_result[0].get('recording_url'):
-                            recording_url = recording_result[0].get('recording_url')
-                    except Exception as e:
-                        pass
+                    # 如果跳过录音获取，但已有录音URL，使用批量查询的结果
+                    recording_url = current_recording_url
                 
-                # 先查询当前数据库中的数据，检查是否有变化
+                # 检查是否有变化（使用批量查询的结果）
                 try:
-                    current_data_query = """
-                        SELECT call_status, planed_time, call_task_id, call_conversation, 
-                               calling_number, recording_url
-                        FROM leads_task_list 
-                        WHERE task_id = %s AND call_job_id = %s
-                    """
-                    current_data_result = execute_query(current_data_query, (request.task_id, job_id))
+                    # 序列化conversation用于比较
+                    new_conversation_str = json.dumps(conversation) if conversation else None
                     
-                    if current_data_result:
-                        current_data = current_data_result[0]
-                        current_status = current_data.get('call_status')
-                        current_plan_time = current_data.get('planed_time')
-                        current_call_task_id = current_data.get('call_task_id')
-                        current_conversation = current_data.get('call_conversation')
-                        current_calling_number = current_data.get('calling_number')
-                        current_recording_url = current_data.get('recording_url')
-                        
-                        # 序列化conversation用于比较
-                        new_conversation_str = json.dumps(conversation) if conversation else None
-                        
-                        # 比较时间（允许秒级差异）
-                        plan_time_match = False
-                        if current_plan_time and plan_time:
-                            # 比较时间戳，允许1秒差异
-                            time_diff = abs((current_plan_time - plan_time).total_seconds())
-                            plan_time_match = time_diff < 1
-                        elif not current_plan_time and not plan_time:
-                            plan_time_match = True
-                        
-                        # 检查是否有变化
-                        has_changes = (
-                            current_status != job_status or
-                            not plan_time_match or
-                            current_call_task_id != call_task_id or
-                            current_conversation != new_conversation_str or
-                            current_calling_number != calling_number or
-                            current_recording_url != recording_url
-                        )
-                        
-                        # 如果没有变化，跳过更新
-                        if not has_changes:
-                            continue  # 跳过这个任务，不执行更新
+                    # 比较时间（允许秒级差异）
+                    plan_time_match = False
+                    if current_plan_time and plan_time:
+                        # 比较时间戳，允许1秒差异
+                        time_diff = abs((current_plan_time - plan_time).total_seconds())
+                        plan_time_match = time_diff < 1
+                    elif not current_plan_time and not plan_time:
+                        plan_time_match = True
+                    
+                    # 检查是否有变化
+                    has_changes = (
+                        current_status != job_status or
+                        not plan_time_match or
+                        current_call_task_id != call_task_id or
+                        current_conversation != new_conversation_str or
+                        current_calling_number != calling_number or
+                        current_recording_url != recording_url
+                    )
+                    
+                    # 如果没有变化，跳过更新
+                    if not has_changes:
+                        continue  # 跳过这个任务，不执行更新
                     
                     # 有变化或数据不存在，执行更新
                     update_query = """
@@ -1312,22 +1332,15 @@ async def query_task_execution(
                         updated_count += 1
                         
                         # 仅首次需要时触发AI：需满足有会话 且 is_interested 为 NULL 且 leads_follow_id 为 NULL
+                        # 优化：使用批量查询的结果，而不是再次查询数据库
                         if conversation:
                             try:
-                                guard_rows = execute_query(
-                                    """
-                                    SELECT is_interested, leads_follow_id
-                                    FROM leads_task_list
-                                    WHERE task_id = %s AND call_job_id = %s
-                                    """,
-                                    (request.task_id, job_id)
+                                current_is_interested = current_data.get('is_interested')
+                                current_leads_follow_id = current_data.get('leads_follow_id')
+                                needs_ai = (
+                                    current_is_interested is None and
+                                    current_leads_follow_id is None
                                 )
-                                needs_ai = False
-                                if guard_rows:
-                                    needs_ai = (
-                                        guard_rows[0].get('is_interested') is None and
-                                        guard_rows[0].get('leads_follow_id') is None
-                                    )
                                 if needs_ai:
                                     def run_ai_follow():
                                         try:
@@ -1347,15 +1360,11 @@ async def query_task_execution(
                     print(f"更新任务 {job_id} 失败: {str(e)}")
             
             if job_status in ['Succeeded', 'Failed']:
-                # 检查leads_task_list中对应的leads_follow_id是否为空
-                check_follow_query = """
-                    SELECT leads_follow_id 
-                    FROM leads_task_list 
-                    WHERE call_job_id = %s
-                """
-                follow_result = execute_query(check_follow_query, (job_id,))
+                # 优化：使用批量查询的结果，而不是再次查询数据库
+                current_job_data = current_data_map.get(job_id, {})
+                current_leads_follow_id = current_job_data.get('leads_follow_id')
                 
-                if follow_result and follow_result[0].get('leads_follow_id') is None:
+                if current_leads_follow_id is None:
                     # leads_follow_id为空，才创建跟进记录
                     def run_get_leads_follow():
                         try:
@@ -1413,40 +1422,18 @@ async def query_task_execution(
                     except Exception as e:
                         print(f"更新任务类型失败: {str(e)}")
         
-        # 在返回数据之前，为每个job_data添加is_interested和follow_data
+        # 优化：在返回数据之前，为每个job_data添加is_interested和follow_data
+        # 使用批量查询的结果，而不是循环中逐个查询
         for job_data in jobs_data:
             job_id = job_data.get('JobId')
             
-            # 获取is_interested和follow_data
-            is_interested = None
-            follow_data = None
+            # 从批量查询的结果中获取is_interested和follow_data
+            current_job_data = current_data_map.get(job_id, {})
+            is_interested = current_job_data.get('is_interested')
+            leads_follow_id = current_job_data.get('leads_follow_id')
             
-            # 从leads_task_list中查询is_interested
-            try:
-                leads_query = """
-                    SELECT is_interested, leads_follow_id
-                    FROM leads_task_list 
-                    WHERE call_job_id = %s
-                """
-                leads_result = execute_query(leads_query, (job_id,))
-                if leads_result:
-                    is_interested = leads_result[0].get('is_interested')
-                    leads_follow_id = leads_result[0].get('leads_follow_id')
-                    
-                    # 如果leads_follow_id有值，查询dcc_leads_follow表
-                    if leads_follow_id:
-                        follow_query = """
-                            SELECT id, leads_id, follow_time, leads_remark, 
-                                   frist_follow_time, new_follow_time, next_follow_time,
-                                   is_arrive, frist_arrive_time
-                            FROM dcc_leads_follow 
-                            WHERE id = %s
-                        """
-                        follow_result = execute_query(follow_query, (leads_follow_id,))
-                        if follow_result:
-                            follow_data = follow_result[0]
-            except Exception as e:
-                print(f"查询is_interested和follow_data失败 - job_id: {job_id}, 错误: {str(e)}")
+            # 从批量查询的跟进数据字典中获取follow_data
+            follow_data = follow_data_map.get(leads_follow_id) if leads_follow_id else None
             
             # 将is_interested和follow_data添加到job_data中
             job_data['is_interested'] = is_interested

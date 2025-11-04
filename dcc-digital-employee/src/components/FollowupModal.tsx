@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import '../app/datepicker-custom.css';
@@ -54,8 +54,15 @@ export default function FollowupModal({
   const [taskInfo, setTaskInfo] = useState<TaskInfo | null>(null);
   const [taskStatistics, setTaskStatistics] = useState<TaskStatistics | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'records'>('overview');
+  
+  // 分页相关状态
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalJobs, setTotalJobs] = useState(0);
   
   // 筛选和展开状态
   const [interestFilter, setInterestFilter] = useState<'all' | 'pending' | 'unable_to_judge' | 'interested' | 'not_interested'>('all');
@@ -70,6 +77,9 @@ export default function FollowupModal({
   
   // 新增：同步DCC弹窗状态
   const [showSyncModal, setShowSyncModal] = useState(false);
+  
+  // 滚动容器引用
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // 当弹窗打开且有选中的任务时，获取任务跟进记录
   useEffect(() => {
@@ -82,7 +92,11 @@ export default function FollowupModal({
       setCustomEndDate(null);
       setNextFollowFilter('all');
       setInterestFilter('all');
-      fetchTaskData();
+      // 重置分页状态
+      setPage(1);
+      setHasMore(true);
+      setFollowupRecords([]);
+      fetchTaskData(false);
     }
   }, [isOpen, selectedTaskId]);
 
@@ -92,12 +106,154 @@ export default function FollowupModal({
     setInterestFilter(filterType);
   };
 
-  // 定期刷新数据
+  // 获取任务数据函数（支持追加模式）
+  const fetchTaskData = useCallback(async (append: boolean = false) => {
+    if (!selectedTaskId) return;
+
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+      setError(null);
+    }
+
+    try {
+      const currentPage = append ? page : 1;
+      
+      // 只在首次加载时获取任务统计信息
+      if (!append) {
+        const statisticsResponse = await tasksAPI.getTaskStatistics(selectedTaskId);
+        
+        if (statisticsResponse.status === 'success') {
+          setTaskStatistics(statisticsResponse.data);
+        } else {
+          setError(statisticsResponse.message || '获取任务统计信息失败');
+        }
+      }
+
+      // 获取任务执行情况（用于获取执行记录）- 支持分页
+      const executionResponse = await tasksAPI.queryTaskExecution(selectedTaskId, currentPage, pageSize);
+      
+      if (executionResponse.status === 'success') {
+        const data = executionResponse.data;
+        
+        // 只在首次加载时构建任务信息
+        if (!append) {
+          const taskInfo: TaskInfo = {
+            id: data.task_id,
+            task_name: data.task_name,
+            task_type: 3, // 已完成的任务（task_type: 3-外呼完成；4-跟进完成）
+            create_time: data.query_time,
+            leads_count: data.total_jobs,
+            is_completed: true
+          };
+          setTaskInfo(taskInfo);
+          setTotalJobs(data.total_jobs || 0);
+        }
+        
+        // 更新分页信息
+        if (data.pagination) {
+          const { page: currentPageNum, total_pages } = data.pagination;
+          setHasMore(currentPageNum < total_pages);
+          if (!append) {
+            setPage(2); // 首次加载后，下次加载第二页
+          } else {
+            setPage(currentPageNum + 1); // 追加模式，设置下一页
+          }
+        }
+        
+        // 转换jobs_data为跟进记录格式
+        const newFollowupRecords: FollowupRecord[] = data.jobs_data.map((job: any, index: number) => {
+          const task = job.Tasks?.[0]; // 取第一个任务
+          const contact = job.Contacts?.[0]; // 取第一个联系人
+          const followData = job.follow_data; // 跟进数据
+          
+          // 确保正确获取 is_interested 值 - 从job根级别获取
+          let isInterested = null;
+          if (job.is_interested !== undefined) {
+            isInterested = job.is_interested;
+          }
+          
+          // 获取下次跟进时间
+          let nextFollowTime = null;
+          if (followData?.next_follow_time) {
+            nextFollowTime = followData.next_follow_time;
+          }
+          
+          // 调试信息：只在开发环境显示
+          if (process.env.NODE_ENV === 'development' && !append) {
+            console.log(`Record ${index}:`, {
+              leadName: contact?.ContactName || '未知客户',
+              isInterested: isInterested,
+              jobIsInterested: job.is_interested,
+              followData: followData,
+              nextFollowTime: nextFollowTime
+            });
+          }
+          
+          // 使用 job_id 作为唯一标识，而不是 index
+          const uniqueId = job.JobId || `record_${currentPage}_${index}`;
+          
+          return {
+            id: uniqueId,
+            leadName: contact?.ContactName || '未知客户',
+            phone: contact?.PhoneNumber || task?.CalledNumber || '未知号码',
+            isInterested: isInterested,
+            remark: followData?.leads_remark || '',
+            conversation: task?.Conversation || [],
+            followupTime: task?.ActualTime ? new Date(task.ActualTime).toLocaleString() : '未知时间',
+            callDuration: task?.Duration ? Math.floor(task.Duration / 1000) : 0,
+            nextFollowTime: nextFollowTime
+          };
+        });
+        
+        // 追加模式：将新数据追加到现有数据；首次加载：替换数据
+        if (append) {
+          setFollowupRecords(prev => [...prev, ...newFollowupRecords]);
+        } else {
+          setFollowupRecords(newFollowupRecords);
+        }
+      } else {
+        setError(executionResponse.message || '获取任务执行情况失败');
+      }
+    } catch (error) {
+      console.error('获取任务数据失败:', error);
+      setError('获取任务数据失败，请重试');
+    } finally {
+      if (append) {
+        setLoadingMore(false);
+      } else {
+        setLoading(false);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTaskId, pageSize]);
+
+  // 加载更多数据
+  const loadMore = useCallback(async () => {
+    if (!selectedTaskId || loadingMore || !hasMore) return;
+    
+    setLoadingMore(true);
+    try {
+      await fetchTaskData(true);
+    } catch (error) {
+      console.error('加载更多数据失败:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTaskId, fetchTaskData]);
+
+  // 定期刷新数据（只刷新第一页）
   useEffect(() => {
     if (!isOpen || !selectedTaskId) return;
 
     const refreshData = () => {
-      fetchTaskData();
+      // 刷新时重置到第一页
+      setPage(1);
+      setHasMore(true);
+      setFollowupRecords([]);
+      fetchTaskData(false);
     };
 
     // 每30秒刷新一次数据
@@ -105,6 +261,25 @@ export default function FollowupModal({
     
     return () => clearInterval(interval);
   }, [isOpen, selectedTaskId]);
+  
+  // 滚动加载更多
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'records') return;
+    
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+    
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      // 当滚动到距离底部100px时开始加载
+      if (scrollHeight - scrollTop - clientHeight < 100 && !loadingMore && hasMore && !loading) {
+        loadMore();
+      }
+    };
+    
+    scrollContainer.addEventListener('scroll', handleScroll);
+    return () => scrollContainer.removeEventListener('scroll', handleScroll);
+  }, [isOpen, activeTab, loadingMore, hasMore, loading, loadMore]);
 
   // 处理全选/取消全选
   const handleSelectAll = () => {
@@ -138,91 +313,7 @@ export default function FollowupModal({
     return filteredRecords.filter(record => selectedRecords.has(record.id));
   };
 
-  const fetchTaskData = async () => {
-    if (!selectedTaskId) return;
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      // 获取任务统计信息
-      const statisticsResponse = await tasksAPI.getTaskStatistics(selectedTaskId);
-      
-      if (statisticsResponse.status === 'success') {
-        setTaskStatistics(statisticsResponse.data);
-      } else {
-        setError(statisticsResponse.message || '获取任务统计信息失败');
-      }
-
-      // 获取任务执行情况（用于获取执行记录）
-      const executionResponse = await tasksAPI.queryTaskExecution(selectedTaskId);
-      
-      if (executionResponse.status === 'success') {
-        const data = executionResponse.data;
-        
-        // 构建任务信息
-        const taskInfo: TaskInfo = {
-          id: data.task_id,
-          task_name: data.task_name,
-          task_type: 3, // 已完成的任务（task_type: 3-外呼完成；4-跟进完成）
-          create_time: data.query_time,
-          leads_count: data.total_jobs,
-          is_completed: true
-        };
-        setTaskInfo(taskInfo);
-        
-        // 转换jobs_data为跟进记录格式
-        const followupRecords: FollowupRecord[] = data.jobs_data.map((job: any, index: number) => {
-          const task = job.Tasks?.[0]; // 取第一个任务
-          const contact = job.Contacts?.[0]; // 取第一个联系人
-          const followData = job.follow_data; // 跟进数据
-          
-          // 确保正确获取 is_interested 值 - 从job根级别获取
-          let isInterested = null;
-          if (job.is_interested !== undefined) {
-            isInterested = job.is_interested;
-          }
-          
-          // 获取下次跟进时间
-          let nextFollowTime = null;
-          if (followData?.next_follow_time) {
-            nextFollowTime = followData.next_follow_time;
-          }
-          
-          // 调试信息：只在开发环境显示
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`Record ${index}:`, {
-              leadName: contact?.ContactName || '未知客户',
-              isInterested: isInterested,
-              jobIsInterested: job.is_interested,
-              followData: followData,
-              nextFollowTime: nextFollowTime
-            });
-          }
-          
-          return {
-            id: `record_${index}`,
-            leadName: contact?.ContactName || '未知客户',
-            phone: contact?.PhoneNumber || task?.CalledNumber || '未知号码',
-            isInterested: isInterested,
-            remark: followData?.leads_remark || '',
-            conversation: task?.Conversation || [],
-            followupTime: task?.ActualTime ? new Date(task.ActualTime).toLocaleString() : '未知时间',
-            callDuration: task?.Duration ? Math.floor(task.Duration / 1000) : 0,
-            nextFollowTime: nextFollowTime
-          };
-        });
-        setFollowupRecords(followupRecords);
-      } else {
-        setError(executionResponse.message || '获取任务执行情况失败');
-      }
-    } catch (error) {
-      console.error('获取任务数据失败:', error);
-      setError('获取任务数据失败，请重试');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getTaskStatusText = (taskType: number, isCompleted: boolean) => {
     if (isCompleted) return '已完成';
@@ -474,7 +565,7 @@ export default function FollowupModal({
           </div>
 
           {/* 弹窗内容 - 支持滚动 */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6">
             {/* 加载状态 */}
             {loading && (
               <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
@@ -716,6 +807,7 @@ export default function FollowupModal({
                     <div className="flex items-center space-x-2 ml-auto">
                       <span className="text-gray-400 text-sm">
                         筛选结果：{filteredRecords.length}/{followupRecords.length}
+                        {totalJobs > 0 && ` / ${totalJobs}`}
                       </span>
                     </div>
                   </div>
@@ -851,6 +943,21 @@ export default function FollowupModal({
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+                
+                {/* 加载更多指示器 */}
+                {loadingMore && (
+                  <div className="flex items-center justify-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+                    <span className="text-blue-400 ml-2 text-sm">加载更多数据...</span>
+                  </div>
+                )}
+                
+                {/* 没有更多数据提示 */}
+                {!hasMore && followupRecords.length > 0 && (
+                  <div className="text-center py-4 text-gray-400 text-sm">
+                    已加载全部数据
                   </div>
                 )}
               </div>
