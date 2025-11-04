@@ -217,10 +217,31 @@ export const tasksAPI = {
     return apiRequest('/tasks');
   },
 
-  // 获取任务统计数据
-  getCallTasksStatistics: async () => {
-    return apiRequest('/task-stats');
-  },
+  // 获取任务统计数据（带请求去重，防止并发请求）
+  getCallTasksStatistics: (() => {
+    let pendingRequest: Promise<any> | null = null;
+    
+    return async () => {
+      // 如果已经有正在进行的请求，直接返回该请求的 Promise
+      if (pendingRequest) {
+        console.log('task-stats 请求正在进行中，等待现有请求完成...');
+        return pendingRequest;
+      }
+      
+      // 创建新的请求
+      pendingRequest = apiRequest('/task-stats')
+        .then((response) => {
+          pendingRequest = null; // 请求完成后清除
+          return response;
+        })
+        .catch((error) => {
+          pendingRequest = null; // 请求失败后也清除
+          throw error;
+        });
+      
+      return pendingRequest;
+    };
+  })(),
 
   // 获取任务详情
   getCallTaskDetails: async (taskId: string) => {
@@ -306,11 +327,14 @@ export const tasksAPI = {
   },
 
   // 查询任务执行情况（新接口）
-  queryTaskExecution: async (taskId: number) => {
+  queryTaskExecution: async (taskId: number, page: number = 1, pageSize: number = 20, skipRecording: boolean = true) => {
     return apiRequest('/query-task-execution', {
       method: 'POST',
       body: JSON.stringify({
-        task_id: taskId
+        task_id: taskId,
+        page: page,
+        page_size: pageSize,
+        skip_recording: skipRecording
       })
     });
   },

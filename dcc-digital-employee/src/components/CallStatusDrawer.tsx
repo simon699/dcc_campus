@@ -83,14 +83,21 @@ const statusCache = new Map<string, {
 export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, onRefresh, taskType, onTaskTypeChange }: CallStatusDrawerProps) {
   const [callJobs, setCallJobs] = useState<CallJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [taskStatus, setTaskStatus] = useState<any>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20); // 固定每页20条
+  const [hasMore, setHasMore] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   
   // 防抖定时器
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
   const minFetchInterval = 3000; // 最小3秒间隔
+  const pendingFetchRef = useRef<Promise<any> | null>(null); // 正在进行的请求锁
 
   // 检查缓存是否有效
   const isCacheValid = (cacheKey: string, cacheDuration: number = 30000) => {
@@ -116,43 +123,138 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
     });
   };
 
-  // 防抖的获取任务详情函数
-  const debouncedFetchCallStatus = useCallback(() => {
+  // 防抖的获取任务详情函数（初始加载时不防抖，直接加载）
+  const debouncedFetchCallStatus = useCallback((isInitial: boolean = false) => {
+    // 如果已经有请求在进行，跳过
+    if (isInitial && pendingFetchRef.current) {
+      console.log('CallStatusDrawer: 初始加载时已有请求在进行，跳过');
+      return;
+    }
+    
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
-    debounceTimerRef.current = setTimeout(() => {
-      fetchCallStatus();
-    }, 500); // 500ms防抖
+    if (isInitial) {
+      // 初始加载时立即执行，不防抖，跳过时间间隔检查
+      fetchCallStatus(false, true);
+    } else {
+      // 后续刷新时使用防抖
+      debounceTimerRef.current = setTimeout(() => {
+        fetchCallStatus();
+      }, 500); // 500ms防抖
+    }
   }, []);
 
-  // 获取任务详情和job_ids
-  const fetchCallStatus = async () => {
+  // 获取任务详情和job_ids（支持追加模式）
+  const fetchCallStatus = async (append: boolean = false, skipIntervalCheck: boolean = false) => {
     if (!isOpen || !taskId) return;
 
-    const now = Date.now();
-    if (now - lastFetchTimeRef.current < minFetchInterval) {
+    // 如果已经有正在进行的请求（非追加模式），等待它完成或直接返回
+    if (!append && pendingFetchRef.current) {
+      console.log('CallStatusDrawer: 已有请求正在进行，跳过重复请求');
+      try {
+        await pendingFetchRef.current;
+      } catch (e) {
+        // 忽略错误，继续执行
+      }
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    lastFetchTimeRef.current = now;
-
-    try {
-      // 使用新的查询任务执行情况接口
-      const executionCacheKey = `task_execution_${taskId}`;
-      let executionResponse;
-      
-      if (isCacheValid(executionCacheKey, 10000)) { // 10秒缓存
-        executionResponse = getCachedData(executionCacheKey);
-      } else {
-        executionResponse = await tasksAPI.queryTaskExecution(parseInt(taskId));
-        if (executionResponse.status === 'success') {
-          setCachedData(executionCacheKey, executionResponse, 10000);
+    const now = Date.now();
+    
+    // 初始加载时，先检查缓存，如果有有效的缓存直接使用，避免重复请求
+    if (!append && skipIntervalCheck) {
+      const cacheKey = `task_execution_${taskId}_1_${pageSize}`;
+      if (isCacheValid(cacheKey, 10000)) { // 10秒缓存
+        const cachedData = getCachedData(cacheKey);
+        if (cachedData && cachedData.status === 'success') {
+          // 使用缓存数据，不发起新请求
+          const taskData = cachedData.data;
+          const totalJobs = taskData.total_jobs || 0;
+          setTotalCount(totalJobs);
+          
+          if (taskData.pagination) {
+            const { page: currentPageNum, total_pages } = taskData.pagination;
+            setHasMore(currentPageNum < total_pages);
+            setPage(2);
+          }
+          
+          const jobsData = taskData.jobs_data || [];
+          const succeededJobs = jobsData.filter((job: any) => job.Status === "Succeeded").length;
+          const connectedCount = succeededJobs;
+          const notConnectedCount = jobsData.length - connectedCount;
+          
+          setTaskStatus({
+            is_completed: false,
+            total_calls: totalJobs,
+            connected_calls: connectedCount,
+            not_connected_calls: notConnectedCount,
+            query_time: taskData.query_time
+          });
+          
+          const processedJobs = jobsData.map((job: any) => {
+            return {
+              job_id: job.JobId || '未知',
+              job_group_id: job.JobGroupId || '未知',
+              status: job.Status || '未知',
+              priority: job.Priority || 0,
+              created_time: new Date().toISOString(),
+              modified_time: new Date().toISOString(),
+              raw_data: job
+            };
+          });
+          
+          setCallJobs(processedJobs);
+          setLoading(false);
+          return; // 使用缓存，不发起新请求
         }
       }
+    }
+    
+    // 初始加载时跳过时间间隔检查，追加模式或刷新时检查
+    if (!skipIntervalCheck && !append && now - lastFetchTimeRef.current < minFetchInterval) {
+      return;
+    }
+
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+      setError(null);
+    }
+    lastFetchTimeRef.current = now;
+
+    // 创建实际的请求 Promise
+    const requestPromise = (async () => {
+      try {
+        const currentPage = append ? page : 1;
+        // 使用新的查询任务执行情况接口，传递分页参数
+        const executionCacheKey = `task_execution_${taskId}_${currentPage}_${pageSize}`;
+        let executionResponse;
+        
+        if (isCacheValid(executionCacheKey, 10000)) { // 10秒缓存
+          executionResponse = getCachedData(executionCacheKey);
+        } else {
+          executionResponse = await tasksAPI.queryTaskExecution(parseInt(taskId), currentPage, pageSize);
+          if (executionResponse.status === 'success') {
+            setCachedData(executionCacheKey, executionResponse, 10000);
+          }
+        }
+        
+        return executionResponse;
+      } catch (error) {
+        throw error;
+      }
+    })();
+    
+    // 如果是非追加模式的首次加载，保存 Promise 作为请求锁
+    if (!append) {
+      pendingFetchRef.current = requestPromise;
+    }
+
+    try {
+      const executionResponse = await requestPromise;
 
       if (executionResponse.status !== 'success') {
         throw new Error('获取任务执行情况失败');
@@ -160,34 +262,52 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
 
       const taskData = executionResponse.data;
       
-      // 根据jobs_data中的Status字段计算任务状态
+      // 保存总数和分页信息
+      const totalJobs = taskData.total_jobs || 0;
+      setTotalCount(totalJobs);
+      
+      if (taskData.pagination) {
+        const { page: currentPageNum, total_pages } = taskData.pagination;
+        setHasMore(currentPageNum < total_pages);
+        if (!append) {
+          setPage(2); // 首次加载后，下次加载第二页
+        } else {
+          setPage(currentPageNum + 1); // 追加模式，设置下一页
+        }
+      }
+      
       const jobsData = taskData.jobs_data || [];
-      const succeededJobs = jobsData.filter((job: any) => job.Status === "Succeeded").length;
-      const schedulingJobs = jobsData.filter((job: any) => job.Status === "Scheduling").length;
-      const totalJobs = jobsData.length;
       
-      // 计算已接通的任务数（Succeeded状态）
-      const connectedCount = succeededJobs;
-      
-      // 未接通任务数 = 总任务数 - 已接通任务数
-      const notConnectedCount = totalJobs - connectedCount;
-      
-      // 如果所有任务都是Succeeded状态，则认为任务完成
-      const isCompleted = totalJobs > 0 && succeededJobs === totalJobs;
-      
-      // 设置任务状态信息
-      setTaskStatus({
-        is_completed: isCompleted,
-        total_calls: totalJobs,
-        connected_calls: connectedCount,
-        not_connected_calls: notConnectedCount,
-        query_time: taskData.query_time
-      });
+      // 只在首次加载时更新任务状态信息
+      if (!append) {
+        // 根据jobs_data中的Status字段计算当前页的任务状态
+        const succeededJobs = jobsData.filter((job: any) => job.Status === "Succeeded").length;
+        const connectedCount = succeededJobs;
+        const notConnectedCount = jobsData.length - connectedCount;
+        
+        setTaskStatus({
+          is_completed: false,
+          total_calls: totalJobs,
+          connected_calls: connectedCount,
+          not_connected_calls: notConnectedCount,
+          query_time: taskData.query_time
+        });
+      }
 
       // 处理 jobs_data 数据
       if (!taskData.jobs_data || taskData.jobs_data.length === 0) {
-        setError('该任务暂无外呼记录');
-        setLoading(false);
+        if (totalJobs === 0 && !append) {
+          setError('该任务暂无外呼记录');
+          setCallJobs([]);
+        } else if (!append) {
+          setError(`当前页暂无数据（共 ${totalJobs} 条记录）`);
+          setCallJobs([]);
+        }
+        if (append) {
+          setLoadingMore(false);
+        } else {
+          setLoading(false);
+        }
         return;
       }
 
@@ -204,17 +324,53 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
         };
       });
 
-      setCallJobs(processedJobs);
+      if (append) {
+        // 追加模式：将新数据追加到现有数据
+        setCallJobs(prev => [...prev, ...processedJobs]);
+      } else {
+        // 首次加载：替换数据
+        setCallJobs(processedJobs);
+        setPage(2); // 下次加载第二页
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '获取外呼状态失败');
     } finally {
-      setLoading(false);
+      if (append) {
+        setLoadingMore(false);
+      } else {
+        setLoading(false);
+        // 清除请求锁
+        pendingFetchRef.current = null;
+      }
     }
   };
 
+  // 加载更多数据
+  const loadMore = useCallback(() => {
+    if (!loadingMore && hasMore && !loading) {
+      fetchCallStatus(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingMore, hasMore, loading]);
+
   useEffect(() => {
-    if (isOpen) {
-      debouncedFetchCallStatus();
+    if (isOpen && taskId) {
+      // 重置状态
+      setPage(1);
+      setHasMore(true);
+      setCallJobs([]);
+      setTotalCount(0);
+      // 清除之前的请求锁和定时器
+      pendingFetchRef.current = null;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      // 初始加载时不防抖，立即加载（只调用一次）
+      fetchCallStatus(false, true);
+    } else {
+      // 关闭时清除请求锁
+      pendingFetchRef.current = null;
     }
     
     // 清理定时器
@@ -222,8 +378,30 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
+      // 组件卸载时清除请求锁
+      pendingFetchRef.current = null;
     };
-  }, [isOpen, taskId, debouncedFetchCallStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, taskId]); // 移除 debouncedFetchCallStatus 依赖，直接调用 fetchCallStatus
+
+  // 滚动监听，实现滚动加载
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer || !isOpen || !hasMore) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      // 当滚动到距离底部100px时开始加载
+      if (scrollHeight - scrollTop - clientHeight < 100 && !loadingMore && !loading) {
+        loadMore();
+      }
+    };
+
+    scrollContainer.addEventListener('scroll', handleScroll);
+    return () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+    };
+  }, [isOpen, hasMore, loadingMore, loading, loadMore]);
 
   // 清理缓存
   useEffect(() => {
@@ -374,9 +552,9 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
       } else {
         console.error(`${action === 'suspend' ? '暂停' : '重启'}任务失败:`, response.message);
         
-        // 操作失败时，立即查询任务最新状态
+        // 操作失败时，立即查询任务最新状态（只查询第一页获取状态信息）
         try {
-          const executionResponse = await tasksAPI.queryTaskExecution(parseInt(taskId));
+          const executionResponse = await tasksAPI.queryTaskExecution(parseInt(taskId), 1, 20);
           if (executionResponse.status === 'success') {
             const taskData = executionResponse.data;
             console.log('操作失败后查询任务状态:', taskData);
@@ -420,7 +598,7 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-[80] pt-4" onClick={handleClose}>
       <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl max-w-6xl w-full mx-4 max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="flex-1 overflow-y-auto p-6">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold text-white mb-2">电话拨打情况</h2>
@@ -506,7 +684,11 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-white">外呼任务详情</h3>
-                <span className="text-gray-300 text-sm">共 {callJobs.length} 个外呼任务</span>
+                <span className="text-gray-300 text-sm">
+                  {totalCount > 0 
+                    ? `已加载 ${callJobs.length} / ${totalCount} 条记录`
+                    : `共 ${callJobs.length} 个外呼任务`}
+                </span>
               </div>
 
               <div className="space-y-3">
@@ -739,6 +921,20 @@ export default function CallStatusDrawer({ isOpen, onClose, taskId, taskName, on
                   );
                 })}
               </div>
+
+              {/* 加载更多提示 */}
+              {loadingMore && (
+                <div className="mt-6 text-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-2"></div>
+                  <p className="text-gray-300 text-sm">正在加载更多...</p>
+                </div>
+              )}
+              
+              {!hasMore && callJobs.length > 0 && (
+                <div className="mt-6 text-center py-4">
+                  <p className="text-gray-400 text-sm">已加载全部 {totalCount} 条记录</p>
+                </div>
+              )}
             </div>
           )}
         </div>
