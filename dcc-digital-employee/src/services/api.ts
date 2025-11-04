@@ -393,6 +393,16 @@ export const tasksAPI = {
         task_id: taskId
       })
     });
+  },
+
+  // 控制自动化任务监控
+  controlAutoTask: async (action: 'start' | 'stop' | 'check') => {
+    return apiRequest('/auto-task', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: action
+      })
+    });
   }
 };
 

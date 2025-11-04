@@ -166,16 +166,9 @@ app.include_router(config_check_router, prefix="/api")
 # 应用启动事件
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时自动启动自动化任务监控"""
+    """应用启动事件"""
     print("🚀 DCC数字员工服务启动中...")
-    
-    # 启动自动化任务监控
-    try:
-        # 创建后台任务启动监控
-        asyncio.create_task(auto_task_monitor.start_monitoring())
-        print("✅ 自动化任务监控已启动")
-    except Exception as e:
-        print(f"❌ 启动自动化任务监控失败: {str(e)}")
+    print("💡 提示：自动化任务监控将在前端打开后由前端请求启动")
 
 # 应用关闭事件
 @app.on_event("shutdown")

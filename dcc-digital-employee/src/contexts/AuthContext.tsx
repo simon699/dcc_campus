@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { getActivityMonitor } from '../utils/activityMonitor';
-import { checkTokenValidity } from '../services/api';
+import { checkTokenValidity, tasksAPI } from '../services/api';
 import { handleTokenExpired } from '../utils/tokenUtils';
 import { API_BASE_URL } from '../config/environment';
 
@@ -25,6 +25,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  // 启动自动化任务监控
+  const startAutoTaskMonitor = async () => {
+    try {
+      console.log('AuthContext：启动自动化任务监控...');
+      await tasksAPI.controlAutoTask('start');
+      console.log('AuthContext：自动化任务监控启动成功');
+    } catch (error) {
+      console.error('AuthContext：启动自动化任务监控失败:', error);
+      // 不抛出错误，允许继续执行
+    }
+  };
+
   useEffect(() => {
     const checkUser = async () => {
       setLoading(true);
@@ -43,6 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(JSON.parse(storedUser));
             // 启动活动监听器
             getActivityMonitor().start();
+            // 启动自动化任务监控
+            startAutoTaskMonitor();
           } else {
             console.log('AuthContext：Token无效，跳转到登录页面');
             handleTokenExpired();
@@ -116,6 +130,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         // 启动活动监听器
         getActivityMonitor().start();
+        
+        // 启动自动化任务监控
+        startAutoTaskMonitor();
         
         console.log('AuthContext：登录成功，准备跳转');
         // 延迟跳转，确保状态更新完成
