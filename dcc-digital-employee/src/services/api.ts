@@ -133,7 +133,17 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
       throw new Error('登录已过期，请重新登录');
     }
     
+    // 先读取响应体（无论成功或失败）
+    const responseData = await response.json();
+    
+    // 如果响应不成功，尝试返回响应体（可能包含错误信息）
     if (!response.ok) {
+      // 对于400错误，返回响应体让调用方处理（可能包含code=4008等特殊错误码）
+      if (response.status === 400) {
+        // FastAPI 通常在 HTTPException 中包一层 { detail: {...} }
+        const normalized = (responseData && (responseData as any).detail) ? (responseData as any).detail : responseData;
+        return normalized;
+      }
       throw new Error(`API请求失败: ${response.status}`);
     }
 
@@ -147,7 +157,7 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
       clearTokenCache();
     });
 
-    return response.json();
+    return responseData;
   } catch (error) {
     // 如果是网络错误或其他错误，也检查token
     if (error instanceof TypeError) {
@@ -207,14 +217,29 @@ export const leadsAPI = {
 
 // 任务相关API
 export const tasksAPI = {
-  // 获取外呼任务列表
-  getCallTasksList: async () => {
-    return apiRequest('/tasks');
+  // 分页获取任务列表（新接口 /task_list）
+  getTaskListPaged: async (page: number = 1, pageSize: number = 20) => {
+    const res = await apiRequest(`/task_list?page=${page}&page_size=${pageSize}`, {
+      method: 'GET'
+    });
+    return res; // 直接返回后端结构，包含 data.items 与 data.pagination
   },
 
-  // 获取话术生成任务列表（只返回待生成话术的任务）
-  getScriptTasksList: async () => {
-    return apiRequest('/tasks');
+  // 适配器：将 /task_list items 转为组件 Task 格式
+  adaptTaskListItems: (items: Array<any>) => {
+    return (items || []).map((i: any) => ({
+      id: String(i.id),
+      name: i.task_name,
+      conditions: [],
+      targetCount: i.leads_count,
+      createdAt: i.create_time,
+      status: i.task_type === 3 ? 'completed' : 'pending',
+      organization_id: undefined,
+      create_name: undefined,
+      script_id: undefined,
+      task_type: i.task_type,
+      size_desc: undefined
+    }));
   },
 
   // 获取任务统计数据（带请求去重，防止并发请求）
@@ -244,23 +269,7 @@ export const tasksAPI = {
   })(),
 
   // 获取任务详情
-  getCallTaskDetails: async (taskId: string) => {
-    // 后端无 /call-tasks/list，改为获取 /tasks 后前端筛选
-    const list = await apiRequest('/tasks');
-    try {
-      const tasks = list?.data || [];
-      const idNum = parseInt(taskId as string, 10);
-      const found = Array.isArray(tasks) ? tasks.find((t: any) => t.id === idNum) : null;
-      return {
-        status: 'success',
-        code: 200,
-        message: found ? 'ok' : 'not found',
-        data: found || null
-      };
-    } catch (e) {
-      return list;
-    }
-  },
+  // 已废弃：避免调用 /tasks，FollowupModal 已不再依赖
 
 
 
@@ -396,9 +405,7 @@ export const tasksAPI = {
   },
 
   // 获取已完成的任务列表（跟进Agent专用）
-  getCompletedTasksList: async () => {
-    return apiRequest('/tasks');
-  },
+  // 已废弃：请使用 getTaskListPaged 并在前端筛选 task_type
 
   // 批量检查任务状态
   batchCheckTaskStatus: async (taskIds: string[]) => {

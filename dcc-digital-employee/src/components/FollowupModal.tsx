@@ -54,9 +54,11 @@ export default function FollowupModal({
   const [taskInfo, setTaskInfo] = useState<TaskInfo | null>(null);
   const [taskStatistics, setTaskStatistics] = useState<TaskStatistics | null>(null);
   const [jobGroupProgress, setJobGroupProgress] = useState<any>(null); // 任务组进度信息
-  const [loading, setLoading] = useState(false);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [recordsLoading, setRecordsLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [noFollowedRecords, setNoFollowedRecords] = useState(false); // 是否无已跟进记录（后端code=4008）
   const [activeTab, setActiveTab] = useState<'overview' | 'records'>('overview');
   
   // 分页相关状态
@@ -93,6 +95,7 @@ export default function FollowupModal({
       setCustomEndDate(null);
       setNextFollowFilter('all');
       setInterestFilter('all');
+      setNoFollowedRecords(false);
       // 重置分页状态
       setPage(1);
       setHasMore(true);
@@ -110,7 +113,7 @@ export default function FollowupModal({
   // 加载“概览数据”（不查执行记录）
   const fetchOverviewData = useCallback(async () => {
     if (!selectedTaskId) return;
-    setLoading(true);
+    setOverviewLoading(true);
     setError(null);
     try {
       // 任务组进度
@@ -128,6 +131,15 @@ export default function FollowupModal({
         const statisticsResponse = await tasksAPI.getTaskStatistics(selectedTaskId);
         if (statisticsResponse.status === 'success') {
           setTaskStatistics(statisticsResponse.data);
+          // 使用统计数据补全最小任务信息，避免调用 /tasks
+          setTaskInfo(prev => prev ?? {
+            id: selectedTaskId,
+            task_name: `任务#${selectedTaskId}`,
+            task_type: 1,
+            create_time: new Date().toLocaleString('zh-CN'),
+            leads_count: statisticsResponse.data.total_leads ?? 0,
+            is_completed: false,
+          });
         } else {
           setError(statisticsResponse.message || '获取任务统计信息失败');
         }
@@ -136,26 +148,11 @@ export default function FollowupModal({
       }
 
       // 任务基本信息（用于名称、task_type等），不依赖执行记录
-      try {
-        const detailsResponse = await tasksAPI.getCallTaskDetails(String(selectedTaskId));
-        if (detailsResponse.status === 'success' && detailsResponse.data) {
-          const d = detailsResponse.data as any;
-          setTaskInfo(prev => ({
-            id: d.id ?? selectedTaskId,
-            task_name: d.task_name ?? prev?.task_name ?? '任务',
-            task_type: d.task_type ?? prev?.task_type ?? 1,
-            create_time: d.create_time ?? prev?.create_time ?? new Date().toLocaleString('zh-CN'),
-            leads_count: (taskStatistics?.total_leads ?? prev?.leads_count ?? 0),
-            is_completed: d.is_completed ?? prev?.is_completed ?? false,
-          }));
-        }
-      } catch (error) {
-        console.error('获取任务详情失败:', error);
-      }
+      // 移除对 /tasks 的调用，避免使用待废弃接口
     } finally {
-      setLoading(false);
+      setOverviewLoading(false);
     }
-  }, [selectedTaskId, taskStatistics]);
+  }, [selectedTaskId]);
 
   // 加载“执行记录数据”（分页）
   const fetchRecordsData = useCallback(async (append: boolean = false) => {
@@ -163,8 +160,9 @@ export default function FollowupModal({
     if (append) {
       setLoadingMore(true);
     } else {
-      setLoading(true);
+      setRecordsLoading(true);
       setError(null);
+      setNoFollowedRecords(false);
     }
     try {
       const currentPage = append ? page : 1;
@@ -187,13 +185,7 @@ export default function FollowupModal({
 
       if (executionResponse.status === 'success') {
         const data = executionResponse.data;
-
-        // 更新 taskInfo 的动态状态（仅当接口提供）
-        const actualTaskType = data.task_type || taskInfo?.task_type || 1;
-        const taskStats = data.task_stats || {};
-        const isCompleted = taskStats.is_completed !== undefined ? taskStats.is_completed : (actualTaskType >= 3);
-        setTaskInfo(prev => prev ? { ...prev, task_type: actualTaskType, is_completed: isCompleted, leads_count: data.total_jobs ?? prev.leads_count } : prev);
-        setTotalJobs(data.total_jobs || 0);
+        // 注意：切换到“执行记录”时，仅刷新记录与分页，不刷新顶部概览（不更新 taskInfo/totalJobs）
 
         if (data.pagination) {
           const { page: currentPageNum, total_pages } = data.pagination;
@@ -237,16 +229,30 @@ export default function FollowupModal({
           setFollowupRecords(newFollowupRecords);
         }
       } else {
-        setError(executionResponse.message || '获取任务执行情况失败');
+        // 特殊处理：后端返回 code=4008 表示"任务下没有已跟进的记录"，不作为失败
+        if (executionResponse.code === 4008) {
+          setNoFollowedRecords(true);
+          setFollowupRecords([]);
+          setHasMore(false);
+        } else {
+          setError(executionResponse.message || '获取任务执行情况失败');
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('获取任务数据失败:', error);
-      setError('获取任务数据失败，请重试');
+      // 如果错误对象中包含响应信息，尝试解析
+      if (error && typeof error === 'object' && 'code' in error && error.code === 4008) {
+        setNoFollowedRecords(true);
+        setFollowupRecords([]);
+        setHasMore(false);
+      } else {
+        setError('获取任务数据失败，请重试');
+      }
     } finally {
       if (append) {
         setLoadingMore(false);
       } else {
-        setLoading(false);
+        setRecordsLoading(false);
       }
     }
   }, [selectedTaskId, page, pageSize, interestFilter, taskInfo]);
@@ -257,6 +263,7 @@ export default function FollowupModal({
     setPage(1);
     setHasMore(true);
     setFollowupRecords([]);
+    setNoFollowedRecords(false);
     fetchRecordsData(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interestFilter, isOpen, selectedTaskId, activeTab]);
@@ -294,6 +301,7 @@ export default function FollowupModal({
       setPage(1);
       setHasMore(true);
       setFollowupRecords([]);
+      setNoFollowedRecords(false);
       fetchRecordsData(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -309,14 +317,14 @@ export default function FollowupModal({
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
       // 当滚动到距离底部100px时开始加载
-      if (scrollHeight - scrollTop - clientHeight < 100 && !loadingMore && hasMore && !loading) {
+      if (scrollHeight - scrollTop - clientHeight < 100 && !loadingMore && hasMore && !recordsLoading) {
         loadMore();
       }
     };
     
     scrollContainer.addEventListener('scroll', handleScroll);
     return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [isOpen, activeTab, loadingMore, hasMore, loading, loadMore]);
+  }, [isOpen, activeTab, loadingMore, hasMore, recordsLoading, loadMore]);
 
   // 处理全选/取消全选
   const handleSelectAll = () => {
@@ -650,13 +658,13 @@ export default function FollowupModal({
           {/* 弹窗内容 - 支持滚动 */}
           <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6">
             {/* 加载中：不展示其他内容，仅展示居中加载指示 */}
-            {loading && (
+            {overviewLoading && activeTab === 'overview' && (
               <div className="flex items-center justify-center py-10">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
                 <span className="text-blue-400 ml-3 text-sm">正在加载...</span>
               </div>
             )}
-            {!loading && (
+            {(!overviewLoading || activeTab === 'records') && (
               <>
 
             {/* 错误信息 */}
@@ -680,19 +688,6 @@ export default function FollowupModal({
                     <p className="text-gray-400 text-sm">创建时间：{taskInfo.create_time}</p>
                   </div>
                   <div className="flex items-center space-x-3">
-                    {/* 外呼状态指示器 */}
-                    {taskInfo.task_type === 2 && (
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 bg-blue-400 rounded-full mr-2 animate-pulse"></div>
-                        <span className="text-blue-400 text-sm">外呼进行中</span>
-                      </div>
-                    )}
-                    {taskInfo.task_type === 5 && (
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 bg-yellow-400 rounded-full mr-2"></div>
-                        <span className="text-yellow-400 text-sm">外呼已暂停</span>
-                      </div>
-                    )}
                     <span className={`px-3 py-1 rounded text-sm ${getTaskStatusColor(taskInfo.task_type, taskInfo.is_completed)}`}>
                       {getTaskStatusText(taskInfo.task_type, taskInfo.is_completed)}
                     </span>
@@ -700,20 +695,16 @@ export default function FollowupModal({
                 </div>
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
-                    <span className="text-gray-400">线索数量：</span>
-                    <span className="text-white">{taskInfo.leads_count}</span>
+                    <span className="text-gray-400">总外呼数：</span>
+                    <span className="text-white">{(jobGroupProgress?.progress?.total_jobs ?? totalJobs ?? 0) as number}</span>
                   </div>
                   <div>
-                    <span className="text-gray-400">任务状态：</span>
-                    <span className={`${taskInfo.task_type === 5 ? 'text-yellow-400' : (taskInfo.is_completed || taskInfo.task_type === 3) ? 'text-green-400' : 'text-blue-400'}`}>
-                      {taskInfo.task_type === 5 ? '暂停中' : (taskInfo.is_completed || taskInfo.task_type === 3) ? '已完成' : '执行中'}
-                    </span>
+                    <span className="text-gray-400">已接通数：</span>
+                    <span className="text-green-400">{(jobGroupProgress?.progress?.total_completed ?? 0) as number}</span>
                   </div>
                   <div>
-                    <span className="text-gray-400">外呼状态：</span>
-                    <span className={taskInfo.task_type === 5 ? 'text-yellow-400' : taskInfo.task_type === 2 ? 'text-blue-400' : 'text-green-400'}>
-                      {taskInfo.task_type === 5 ? '暂停' : taskInfo.task_type === 2 ? '进行中' : '已完成'}
-                    </span>
+                    <span className="text-gray-400">未接通数：</span>
+                    <span className="text-red-400">{(jobGroupProgress?.progress?.failed ?? 0) as number}</span>
                   </div>
                 </div>
               </div>
@@ -748,76 +739,7 @@ export default function FollowupModal({
             {/* 任务概览 */}
             {activeTab === 'overview' && (
               <div className="space-y-6">
-                {/* 任务组进度信息 */}
-                {jobGroupProgress && jobGroupProgress.progress && (() => {
-                  const totalJobsOverview = (jobGroupProgress?.progress?.total_jobs || 0) as number;
-                  const connectedOverview = (jobGroupProgress?.progress?.total_completed || 0) as number;
-                  const notConnectedOverview = (jobGroupProgress?.progress?.failed || 0) as number;
-                  const executingCombinedOverview = ((jobGroupProgress?.progress?.executing || 0) + (jobGroupProgress?.progress?.scheduling || 0)) as number;
-                  const notStartedOverview = Math.max(totalJobsOverview - (connectedOverview + notConnectedOverview + executingCombinedOverview), 0);
-                  const progressPercentOverview = totalJobsOverview > 0 ? Math.round(((connectedOverview + notConnectedOverview) / totalJobsOverview) * 100) : 0;
-                  const isPausedOverview = (taskInfo?.task_type === 5) || (typeof jobGroupProgress?.status === 'string' && jobGroupProgress.status.toLowerCase() === 'paused');
-                  return (
-                    <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-                      <h4 className="text-white font-medium mb-4">任务执行进度</h4>
-                      {isPausedOverview && (
-                        <div className="mb-3 flex items-center text-yellow-300 text-sm">
-                          <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="currentColor">
-                            <rect x="6" y="4" width="4" height="16" rx="1"></rect>
-                            <rect x="14" y="4" width="4" height="16" rx="1"></rect>
-                          </svg>
-                          任务已暂停，外呼已停止
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-2">
-                        <div className="text-center p-3 bg-white/5 rounded-lg">
-                          <div className="text-sm text-gray-400 mb-1">任务状态</div>
-                          <div className={`text-lg font-medium ${isPausedOverview ? 'text-yellow-300' : (taskInfo?.is_completed ? 'text-green-400' : 'text-blue-400')}`}> 
-                            {isPausedOverview ? '暂停中' : (taskInfo?.is_completed ? '已完成' : '执行中')}
-                          </div>
-                        </div>
-                        <div className="text-center p-3 bg-white/5 rounded-lg">
-                          <div className="text-sm text-gray-400 mb-1">总外呼量</div>
-                          <div className="text-white font-semibold text-lg">{totalJobsOverview}</div>
-                        </div>
-                        <div className="text-center p-3 bg-white/5 rounded-lg">
-                          <div className="text-sm text-gray-400 mb-1">已接通</div>
-                          <div className="text-green-400 font-semibold text-lg">{connectedOverview}</div>
-                        </div>
-                        <div className="text-center p-3 bg-white/5 rounded-lg">
-                          <div className="text-sm text-gray-400 mb-1">未开始</div>
-                          <div className="text-gray-300 font-semibold text-lg">{notStartedOverview}</div>
-                        </div>
-                        <div className="text-center p-3 bg-white/5 rounded-lg">
-                          <div className="text-sm text-gray-400 mb-1">未接通</div>
-                          <div className="text-red-400 font-semibold text-lg">{notConnectedOverview}</div>
-                        </div>
-                        <div className="text-center p-3 bg-white/5 rounded-lg">
-                          <div className="text-sm text-gray-400 mb-1">执行中</div>
-                          <div className="text-blue-400 font-semibold text-lg">{executingCombinedOverview}</div>
-                        </div>
-                      </div>
-                      {totalJobsOverview > 0 && (
-                        <div className="mt-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-gray-400">外呼进度</span>
-                            <span className="text-sm text-white">{progressPercentOverview}%</span>
-                          </div>
-                          <div className="w-full bg-white/10 rounded-full h-2">
-                            <div className="bg-green-500 h-2 rounded-full transition-all duration-300" style={{ width: `${progressPercentOverview}%` }}></div>
-                          </div>
-                        </div>
-                      )}
-                      {jobGroupProgress.status && (
-                        <div className="mt-3 text-xs text-gray-400">
-                          任务组状态: <span className="text-white">{getStatusText(jobGroupProgress.status)}</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* 任务统计信息 */}
+                {/* 跟进卡片（统计） */}
                 {taskStatistics && (
                   <div className="p-4 bg-white/5 rounded-lg border border-white/10">
                     <h4 className="text-white font-medium mb-4">执行情况详情</h4>
@@ -965,12 +887,6 @@ export default function FollowupModal({
                     
                     {/* 结果统计 */}
                     <div className="flex items-center space-x-3 ml-auto">
-                      {loading && (
-                        <div className="flex items-center text-blue-400 text-sm">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
-                          <span className="ml-2">正在加载...</span>
-                        </div>
-                      )}
                       <span className="text-gray-400 text-sm">
                         筛选结果：{filteredRecords.length}/{followupRecords.length}
                         {totalJobs > 0 && ` / ${totalJobs}`}
@@ -999,12 +915,17 @@ export default function FollowupModal({
                       </div>
                     )}
 
-                    {filteredRecords.length === 0 ? (
+                    {recordsLoading && filteredRecords.length === 0 ? (
+                      <div className="text-center py-12">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+                        <p className="text-blue-400 text-lg">正在加载执行记录...</p>
+                      </div>
+                    ) : filteredRecords.length === 0 ? (
                       <div className="text-center py-8 text-gray-400">
                         <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        <p>暂无符合条件的执行记录</p>
+                        <p>{noFollowedRecords ? '暂无跟进记录，有跟进记录后会展示' : '暂无符合条件的执行记录'}</p>
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -1130,20 +1051,6 @@ export default function FollowupModal({
                     )}
                   </>
                 
-                {/* 加载更多指示器 */}
-                {loadingMore && (
-                  <div className="flex items-center justify-center py-4">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
-                    <span className="text-blue-400 ml-2 text-sm">加载更多数据...</span>
-                  </div>
-                )}
-                
-                {/* 没有更多数据提示 */}
-                {!hasMore && followupRecords.length > 0 && (
-                  <div className="text-center py-4 text-gray-400 text-sm">
-                    已加载全部数据
-                  </div>
-                )}
               </div>
             )}
               </>

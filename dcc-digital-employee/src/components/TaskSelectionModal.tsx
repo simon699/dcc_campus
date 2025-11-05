@@ -37,14 +37,13 @@ export default function TaskSelectionModal({
     setError(null);
 
     try {
-      const response = await tasksAPI.getCallTasksList();
-      
+      // 使用新分页接口 /task_list，获取第一页
+      const response = await tasksAPI.getTaskListPaged(1, 20);
       if (response.status === 'success') {
-        // API返回的是数组格式，不是包含tasks字段的对象
-        const apiTasks = response.data || [];
-        // 显示外呼进行中、已完成、跟进完成和已暂停的任务（task_type = 2、3、4 或 5）
-        const completedTasks = apiTasks.filter((task: any) => task.task_type === 2 || task.task_type === 3 || task.task_type === 4 || task.task_type === 5);
-        setTasks(completedTasks);
+        const apiItems = response?.data?.items || [];
+        // 仅保留 2(外呼中)、3(跟进中)、4(跟进完成)、5(已暂停)
+        const filtered = apiItems.filter((t: any) => [2,3,4,5].includes(t.task_type));
+        setTasks(filtered);
       } else {
         setError(response.message || '获取任务列表失败');
       }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { tasksAPI, checkTokenValidity } from '../services/api';
@@ -174,6 +174,8 @@ export default function Home() {
 
 
   // 获取任务统计数据
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  
   useEffect(() => {
     const fetchTaskStatistics = async () => {
       if (!isDccBound) return;
@@ -192,6 +194,23 @@ export default function Home() {
             acc[item.task_type] = item;
             return acc;
           }, {});
+          
+          // 检查是否有活跃任务：执行中(2) 或 跟进中(3)
+          const executingStats = statsByType[2] || { count: 0, leads_count: 0 };
+          const followupInProgressStatsForPolling = statsByType[3] || { count: 0, leads_count: 0 };
+          const hasActiveTasks = executingStats.count > 0 || followupInProgressStatsForPolling.count > 0;
+          
+          // 如果没有活跃任务，清除定时刷新
+          if (!hasActiveTasks && intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+            console.log('无执行中(2)/跟进中(3)任务，停止定时刷新（仅剩已结束(4)/已暂停(5)或无任务）');
+          }
+          // 如果有活跃任务且还没有定时器，启动定时刷新
+          else if (hasActiveTasks && !intervalRef.current) {
+            intervalRef.current = setInterval(fetchTaskStatistics, 60000); // 每1分钟刷新一次
+            console.log('检测到活跃任务（执行中(2)或跟进中(3)），开始每分钟定时刷新');
+          }
           
           // 使用setTimeout避免在渲染过程中直接调用setState
           setTimeout(() => {
@@ -224,7 +243,6 @@ export default function Home() {
                   };
                 case 'calling':
                   // 外呼Agent：显示外呼中的任务（task_type=2）和外呼完成的任务（task_type=3）
-                  const executingStats = statsByType[2] || { count: 0, leads_count: 0 };
                   const completedStats = statsByType[3] || { count: 0, leads_count: 0 };
                   const totalCallingTasks = executingStats.count + completedStats.count;
                   
@@ -242,19 +260,17 @@ export default function Home() {
                   // 跟进Agent：展示跟进中的任务（task_type=3）和跟进完成的任务（task_type=4）
                   const followupInProgressStats = statsByType[3] || { count: 0, leads_count: 0 };
                   const followupCompletedStats = statsByType[4] || { count: 0, leads_count: 0 };
-                  // 外呼进行中的任务（task_type=2）也会进入跟进阶段，所以也应该考虑
-                  const callingInProgressStats = statsByType[2] || { count: 0, leads_count: 0 };
                   
                   // 添加调试信息
                   console.log('DEBUG - 跟进Agent状态判断:', {
-                    callingInProgressCount: callingInProgressStats.count,
+                    callingInProgressCount: executingStats.count,
                     followupInProgressCount: followupInProgressStats.count,
                     followupCompletedCount: followupCompletedStats.count,
-                    willBeWorking: callingInProgressStats.count > 0 || followupInProgressStats.count > 0
+                    willBeWorking: executingStats.count > 0 || followupInProgressStats.count > 0
                   });
                   
                   // 如果有外呼进行中的任务（即将进入跟进）或跟进中的任务，都显示为工作中
-                  const newStatus = (callingInProgressStats.count > 0 || followupInProgressStats.count > 0) ? 'working' : 'idle';
+                  const newStatus = (executingStats.count > 0 || followupInProgressStats.count > 0) ? 'working' : 'idle';
                   console.log('DEBUG - 跟进Agent新状态:', newStatus);
                   
                   return {
@@ -278,12 +294,16 @@ export default function Home() {
       }
     };
 
+    // 首次获取统计数据
     fetchTaskStatistics();
     
-    // 定期刷新统计数据以更新工作状态
-    const interval = setInterval(fetchTaskStatistics, 10000); // 每10秒刷新一次
-    
-    return () => clearInterval(interval);
+    // 清理函数
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
   }, [isDccBound]);
 
   // 初始化token验证
@@ -325,15 +345,8 @@ export default function Home() {
   // 处理刷新任务详情
   const handleRefreshTaskDetails = async (taskId: string) => {
     try {
-      // 重新获取任务详情，包括 leads_task_list 数据
-      const response = await tasksAPI.getCallTaskDetails(taskId);
-      if (response.status === 'success') {
-        console.log('任务详情已刷新:', response.data);
-        // 如果当前正在显示任务线索抽屉，则更新数据
-        if (showTaskLeadsDrawer && taskLeadsData?.task_info?.id === parseInt(taskId)) {
-          setTaskLeadsData(response.data);
-        }
-      }
+      // 统一改为刷新任务统计，避免调用已废弃的详情接口
+      await tasksAPI.getTaskStatistics(parseInt(taskId, 10));
     } catch (error) {
       console.error('刷新任务详情失败:', error);
     }
@@ -343,35 +356,31 @@ export default function Home() {
   const handleOutboundCallSuccess = async () => {
     // 刷新任务列表
     try {
-      const response = await tasksAPI.getCallTasksList();
+      const response = await tasksAPI.getTaskListPaged(1, 50);
       if (response.status === 'success') {
-        const apiTasks = response.data.tasks || [];
-        // 显示已开始外呼和已完成的任务
-        const convertedTasks = apiTasks
-                      .filter((apiTask: any) => apiTask.task_type === 2 || apiTask.task_type === 3 || apiTask.task_type === 4) // 显示正在外呼、已完成和跟进完成的任务
-          .map((apiTask: any) => ({
-            id: apiTask.id.toString(),
-            name: apiTask.task_name,
-            createdAt: new Date(apiTask.create_time).toLocaleString(),
+        const apiItems = response?.data?.items || [];
+        const convertedTasks = apiItems
+          .filter((t: any) => t.task_type === 2 || t.task_type === 3 || t.task_type === 4)
+          .map((t: any) => ({
+            id: String(t.id),
+            name: t.task_name,
+            createdAt: t.create_time,
             conditions: [],
-            targetCount: apiTask.leads_count,
-            filteredCount: apiTask.leads_count,
-            status: (apiTask.task_type === 3 || apiTask.task_type === 4) ? 'completed' : 'calling' as const,
-            organization_id: apiTask.organization_id,
-            create_name: apiTask.create_name,
-            script_id: apiTask.script_id,
-            task_type: apiTask.task_type,
-            size_desc: apiTask.size_desc
+            targetCount: t.leads_count,
+            filteredCount: t.leads_count,
+            status: (t.task_type === 3 || t.task_type === 4) ? 'completed' : 'calling' as const,
+            organization_id: undefined,
+            create_name: undefined,
+            script_id: undefined,
+            task_type: t.task_type,
+            size_desc: undefined
           }));
-        
         setTasks(convertedTasks);
       }
     } catch (error) {
       console.error('刷新任务列表失败:', error);
     }
   };
-
-
 
   // 处理机器人点击
   const handleRobotClick = async (robotId: string) => {
@@ -393,26 +402,11 @@ export default function Home() {
     // 话术生成Agent
     if (robotId === 'script') {
       try {
-        // 调用话术生成任务列表API
-        const response = await tasksAPI.getScriptTasksList();
+        // 使用新分页接口 /task_list 获取第一页
+        const response = await tasksAPI.getTaskListPaged(1, 20);
         if (response.status === 'success') {
-          // 转换API数据格式为本地格式
-          const apiTasks = response.data || []; // 直接使用response.data，因为返回的是数组
-          const convertedTasks = apiTasks.map((apiTask: any) => ({
-            id: apiTask.id.toString(),
-            name: apiTask.task_name,
-            createdAt: new Date(apiTask.create_time).toLocaleString(),
-            conditions: [], // API中没有筛选条件信息，暂时为空
-            targetCount: apiTask.leads_count,
-            filteredCount: apiTask.leads_count,
-            status: 'pending' as const,
-            organization_id: apiTask.organization_id,
-            create_name: apiTask.create_name,
-            script_id: apiTask.script_id,
-            task_type: apiTask.task_type,
-            size_desc: apiTask.size_desc
-          }));
-          
+          const apiItems = response?.data?.items || [];
+          const convertedTasks = tasksAPI.adaptTaskListItems(apiItems);
           setTasks(convertedTasks);
           setShowTaskSelectionDrawer(true);
         } else {
@@ -430,47 +424,39 @@ export default function Home() {
     if (robotId === 'calling') {
       try {
         console.log('外呼Agent clicked, 开始获取任务列表...');
-        // 调用/tasks端点获取任务列表
-        const response = await tasksAPI.getCallTasksList();
+        // 使用新的分页接口获取任务列表第一页
+        const response = await tasksAPI.getTaskListPaged(1, 50);
         if (response.status === 'success') {
-          // API返回的是数组格式，不是包含tasks字段的对象
-          const apiTasks = response.data || [];
-          
-          // 过滤出task_type = 2、3或5的任务（外呼中的任务、外呼完成的任务和已暂停的任务）
-          const filteredTasks = apiTasks.filter((task: any) => 
+          const apiItems = response?.data?.items || [];
+          // 过滤出 task_type = 2、3 或 5（外呼中、外呼完成、已暂停）
+          const filteredItems = apiItems.filter((task: any) =>
             task.task_type === 2 || task.task_type === 3 || task.task_type === 5
           );
-          
-          console.log('DEBUG - All tasks:', apiTasks);
-          console.log('DEBUG - Filtered tasks (type 2, 3 or 5):', filteredTasks);
-          
-          if (filteredTasks.length === 0) {
-            // 没有外呼相关的任务，显示提示
+
+          console.log('DEBUG - All task_list items:', apiItems);
+          console.log('DEBUG - Filtered items (type 2, 3 or 5):', filteredItems);
+
+          if (filteredItems.length === 0) {
             alert('暂无外呼中、外呼完成或已暂停的任务，请先发起任务并发起外呼');
             return;
           }
-          
-          // 转换过滤后的任务数据
-          const convertedTasks = filteredTasks.map((apiTask: any) => ({
-              id: apiTask.id.toString(),
-              name: apiTask.task_name,
-              createdAt: new Date(apiTask.create_time).toLocaleString(),
-              conditions: [],
-              targetCount: apiTask.leads_count,
-              filteredCount: apiTask.leads_count,
-              status: apiTask.task_type === 3 ? 'completed' : 'calling' as const, // task_type=3是外呼完成，其他是外呼中
-              organization_id: apiTask.organization_id,
-              create_name: apiTask.create_name,
-              script_id: apiTask.script_id,
-              task_type: apiTask.task_type,
-              size_desc: apiTask.size_desc
-            }));
-          
-          setTasks(convertedTasks);
-          
 
-          
-          // 显示外呼Agent监控界面
+          const convertedTasks = filteredItems.map((t: any) => ({
+            id: String(t.id),
+            name: t.task_name,
+            createdAt: t.create_time, // 后端已是格式化字符串
+            conditions: [],
+            targetCount: t.leads_count,
+            filteredCount: t.leads_count,
+            status: t.task_type === 3 ? 'completed' : 'calling' as const,
+            organization_id: undefined,
+            create_name: undefined,
+            script_id: undefined,
+            task_type: t.task_type,
+            size_desc: undefined
+          }));
+
+          setTasks(convertedTasks);
           console.log('显示外呼Agent监控界面');
           setShowMonitorDrawer(true);
         } else {
@@ -486,48 +472,8 @@ export default function Home() {
     
     // 跟进Agent
     if (robotId === 'followup') {
-      try {
-        // 获取任务列表，显示跟进中的任务（task_type = 3）和跟进完成的任务（task_type = 4）
-        const response = await tasksAPI.getCallTasksList();
-        if (response.status === 'success') {
-          // API返回的是数组格式，不是包含tasks字段的对象
-          const apiTasks = response.data || [];
-          // 过滤出跟进中和跟进完成的任务（task_type = 3 或 task_type = 4）
-          const followupTasks = apiTasks.filter((task: any) => task.task_type === 3 || task.task_type === 4);
-          
-          if (followupTasks.length === 0) {
-            alert('暂无跟进中或跟进完成的任务，请等待任务进入跟进阶段');
-            return;
-          }
-          
-          // 转换任务数据格式
-          const convertedTasks = followupTasks.map((apiTask: any) => ({
-            id: apiTask.id.toString(),
-            name: apiTask.task_name,
-            createdAt: new Date(apiTask.create_time).toLocaleString(),
-            conditions: [],
-            targetCount: apiTask.leads_count,
-            filteredCount: apiTask.leads_count,
-            status: apiTask.task_type === 4 ? 'completed' : 'calling' as const, // task_type=4是跟进完成，其他是跟进中
-            organization_id: apiTask.organization_id,
-            create_name: apiTask.create_name,
-            script_id: apiTask.script_id,
-            task_type: apiTask.task_type,
-            size_desc: apiTask.size_desc
-          }));
-          
-          setTasks(convertedTasks);
-          
-          // 显示任务选择模态框
-          setShowTaskSelectionModal(true);
-        } else {
-          console.error('获取任务列表失败:', response.message);
-          alert('获取任务列表失败，请重试');
-        }
-      } catch (error) {
-        console.error('获取任务列表失败:', error);
-        alert('获取任务列表失败，请重试');
-      }
+      // 不在点击时请求；仅打开模态框，由模态框内请求 /task_list
+      setShowTaskSelectionModal(true);
       return;
     }
   };

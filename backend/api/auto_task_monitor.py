@@ -22,6 +22,11 @@ class AutoTaskMonitor:
         
         self.is_running = True
         print("自动化任务监控器已启动")
+        # 启动后台轻量处理器（短周期扫描，避免阻塞）
+        try:
+            asyncio.create_task(self._lightweight_background_loop())
+        except Exception:
+            pass
         
         while self.is_running:
             try:
@@ -36,10 +41,98 @@ class AutoTaskMonitor:
         """停止监控任务"""
         self.is_running = False
         print("自动化任务监控器已停止")
+
+    async def _lightweight_background_loop(self):
+        """轻量后台循环：更高频率地拉取 ‘可生成/可补全’ 的记录做处理。
+        - 下载缺失的录音URL（仅 Succeeded）
+        - 对有会话但未生成意向/跟进的记录，触发AI生成并落库
+        周期：每10秒
+        """
+        import sys, os
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'openAPI'))
+        try:
+            from download_recording import Sample as DownloadRecordingSample  # type: ignore
+        except Exception:
+            DownloadRecordingSample = None
+
+        while self.is_running:
+            try:
+                # 1) 补齐录音URL：已接通但 recording_url 为空
+                if DownloadRecordingSample:
+                    rows = execute_query(
+                        """
+                        SELECT l.task_id, l.call_job_id, l.call_task_id
+                        FROM leads_task_list l
+                        WHERE l.call_status = 'Succeeded'
+                          AND (l.recording_url IS NULL OR l.recording_url = '')
+                          AND l.call_task_id IS NOT NULL AND l.call_task_id != ''
+                        ORDER BY l.id ASC
+                        LIMIT 50
+                        """
+                    )
+                    for r in rows or []:
+                        try:
+                            new_url = DownloadRecordingSample.main([], task_id=r['call_task_id'])
+                            if new_url:
+                                execute_update(
+                                    """
+                                    UPDATE leads_task_list
+                                    SET recording_url = %s
+                                    WHERE task_id = %s AND call_job_id = %s
+                                    """,
+                                    (new_url, r['task_id'], r['call_job_id'])
+                                )
+                        except Exception:
+                            pass
+
+                # 2) 生成跟进：有会话且 is_interested、leads_follow_id 都为空
+                rows2 = execute_query(
+                    """
+                    SELECT call_job_id
+                    FROM leads_task_list
+                    WHERE call_conversation IS NOT NULL
+                      AND (is_interested IS NULL)
+                      AND (leads_follow_id IS NULL)
+                    ORDER BY id ASC
+                    LIMIT 50
+                    """
+                )
+                for r in rows2 or []:
+                    try:
+                        # 直接复用现有逻辑（含AI与入库）
+                        from .auto_call_api import get_leads_follow_id
+                        threading.Thread(target=get_leads_follow_id, args=(r['call_job_id'],), kwargs={"force": False, "dry_run": False}, daemon=True).start()
+                    except Exception:
+                        pass
+
+            except Exception as e:
+                try:
+                    print(f"[bg-loop] 轻量后台循环异常: {str(e)}")
+                except Exception:
+                    pass
+            finally:
+                try:
+                    await asyncio.sleep(10)
+                except Exception:
+                    pass
     
     async def check_and_update_tasks(self):
         """检查并更新任务状态"""
         try:
+            # 首先检查是否有需要监控的任务（task_type = 2 或 3）
+            # 如果所有任务都是 task_type = 4（跟进完成）或 5（已暂停），则不执行定时检查
+            active_task_check = """
+                SELECT COUNT(*) as active_count
+                FROM call_tasks
+                WHERE task_type IN (2, 3)
+            """
+            active_result = execute_query(active_task_check)
+            active_count = active_result[0]['active_count'] if active_result else 0
+            
+            if active_count == 0:
+                print("所有任务都是已完成（task_type=4）或已暂停（task_type=5），跳过定时检查")
+                return
+            
             # 查询所有需要检查的任务 - 只有task_type=2（开始外呼）的任务才检查
             query = """
                 SELECT DISTINCT ct.id, ct.task_name, ct.task_type
@@ -133,6 +226,7 @@ class AutoTaskMonitor:
                     return
                 
                 # 处理每个任务的结果
+                pending_updates = []
                 for job_data in jobs_data:
                     job_id = job_data.get('JobId')
                     tasks = job_data.get('Tasks', [])
@@ -207,21 +301,9 @@ class AutoTaskMonitor:
                             # 其它状态保持现有
                             recording_url = current_recording_url
                         
-                        # 更新leads_task_list表
-                        update_query = """
-                            UPDATE leads_task_list 
-                            SET call_status = %s,
-                                planed_time = %s,
-                                call_task_id = %s,
-                                call_conversation = %s,
-                                calling_number = %s,
-                                recording_url = %s
-                            WHERE task_id = %s AND call_job_id = %s
-                        """
-                        
+                        # 聚合更新参数，稍后批量入库
                         try:
                             print(f"准备更新数据库 - job_id: {job_id}, recording_url: {recording_url}, calling_number: {calling_number}")
-                            # 与 API 保持一致：使用 job_status 写入 call_status，确保 Failed 能正确反映
                             update_params = (
                                 job_status,
                                 plan_time,
@@ -232,9 +314,7 @@ class AutoTaskMonitor:
                                 task_id,
                                 job_id
                             )
-                            print(f"更新参数: {update_params}")
-                            affected_rows = execute_update(update_query, update_params)
-                            print(f"数据库更新成功 - job_id: {job_id}, 影响行数: {affected_rows}")
+                            pending_updates.append(update_params)
 
                             # 仅首次需要时触发AI：需满足有会话 且 is_interested 为 NULL 且 leads_follow_id 为 NULL
                             if conversation:
@@ -276,12 +356,54 @@ class AutoTaskMonitor:
 
                         except Exception as e:
                             print(f"更新任务 {job_id} 失败: {str(e)}")
-                            print(f"更新查询: {update_query}")
-                            try:
-                                print(f"更新参数: {update_params}")
-                            except NameError:
-                                print("更新参数未定义")
                 
+                # 批量执行更新（如果有累计的变更）
+                if pending_updates:
+                    try:
+                        values_placeholder = ",".join(["(%s,%s,%s,%s,%s,%s,%s,%s)"] * len(pending_updates))
+                        batch_sql = f"""
+                            UPDATE leads_task_list AS l
+                            SET 
+                                call_status = d.call_status,
+                                planed_time = d.planed_time,
+                                call_task_id = d.call_task_id,
+                                call_conversation = d.call_conversation,
+                                calling_number = d.calling_number,
+                                recording_url = d.recording_url
+                            FROM (
+                                VALUES {values_placeholder}
+                            ) AS d(
+                                call_status, planed_time, call_task_id, call_conversation, calling_number, recording_url, task_id, call_job_id
+                            )
+                            WHERE l.task_id = d.task_id AND l.call_job_id = d.call_job_id
+                        """
+                        flat_params: list = []
+                        for row in pending_updates:
+                            flat_params.extend(list(row))
+                        affected_rows = execute_update(batch_sql, tuple(flat_params))
+                        print(f"[monitor] 批量更新完成，影响行数: {affected_rows}")
+                    except Exception as e:
+                        print(f"[monitor] 批量更新失败，回退逐条: {str(e)}")
+                        for params in pending_updates:
+                            try:
+                                execute_update(
+                                    """
+                                    UPDATE leads_task_list
+                                    SET call_status = %s,
+                                        planed_time = %s,
+                                        call_task_id = %s,
+                                        call_conversation = %s,
+                                        calling_number = %s,
+                                        recording_url = %s
+                                    WHERE task_id = %s AND call_job_id = %s
+                                    """,
+                                    params
+                                )
+                            except Exception as ie:
+                                print(f"[monitor] 回退逐条失败: {str(ie)}")
+                    finally:
+                        pending_updates.clear()
+
             except Exception as e:
                 print(f"获取外呼任务状态失败: {str(e)}")
                 

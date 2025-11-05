@@ -240,24 +240,27 @@ async def create_auto_call_task(
         # 插入任务记录
         task_id = execute_update(task_query, task_params)
         
-        # 批量插入leads_task_list记录
+        # 批量插入leads_task_list记录（由逐条改为一次性多值插入，降低数据库往返次数）
         if leads_result:
-            list_query = """
+            # 组装多行 VALUES 占位符
+            values_placeholder = ",".join(["(%s, %s, %s, %s, %s, %s)"] * len(leads_result))
+            batch_insert_sql = f"""
                 INSERT INTO leads_task_list 
                 (task_id, leads_id, leads_name, leads_phone, call_time, call_job_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES {values_placeholder}
             """
-            
+
+            params = []
             for lead in leads_result:
-                list_params = (
+                params.extend([
                     task_id,
                     lead['leads_id'],
                     lead['leads_user_name'],
                     lead['leads_user_phone'],
                     current_time,
-                    ""  # call_job_id 暂时为空
-                )
-                execute_update(list_query, list_params)
+                    ""
+                ])
+            execute_update(batch_insert_sql, tuple(params))
         
         # 构建返回的size_desc，确保包含前端期望的字段
         size_desc_dict = request.size_desc.dict()
@@ -376,6 +379,16 @@ async def get_task_stats(
         
         organization_id = org_result[0]['dcc_user_org_id']
         
+        # 首先检查是否有活跃任务（task_type = 2 或 3）
+        # 如果所有任务都是 task_type = 4（跟进完成）或 5（已暂停），则不执行状态检查
+        active_task_check = """
+            SELECT COUNT(*) as active_count
+            FROM call_tasks
+            WHERE organization_id = %s AND task_type IN (2, 3)
+        """
+        active_result = execute_query(active_task_check, (organization_id,))
+        active_count = active_result[0]['active_count'] if active_result else 0
+        
         # 在统计之前，先检查所有进行中的任务（task_type=2）的状态
         # 查询所有 task_type=2 且有 job_group_id 的任务
         checking_tasks_query = """
@@ -385,8 +398,8 @@ async def get_task_stats(
         """
         checking_tasks = execute_query(checking_tasks_query, (organization_id,))
         
-        # 如果有需要检查的任务，调用 describe-job-group 检查状态
-        if checking_tasks:
+        # 如果有活跃任务且有需要检查的任务，调用 describe-job-group 检查状态
+        if active_count > 0 and checking_tasks:
             import sys
             import os
             sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'openAPI'))
@@ -1153,16 +1166,24 @@ async def start_call_task(
             """
             leads_records = execute_query(get_leads_query, (request.task_id,))
             
-            # 按顺序更新每个线索记录的call_job_id
-            for i, lead_record in enumerate(leads_records):
-                if i < len(jobs_id):
-                    job_id = str(jobs_id[i])  # 转换为字符串
-                    update_leads_query = """
-                        UPDATE leads_task_list 
-                        SET call_job_id = %s 
-                        WHERE id = %s
-                    """
-                    execute_update(update_leads_query, (job_id, lead_record['id']))
+            # 批量更新 call_job_id（使用 CASE WHEN 按 id 对应 jobs_id，减少多次往返）
+            if leads_records:
+                pair_count = min(len(leads_records), len(jobs_id))
+                if pair_count > 0:
+                    id_list = [leads_records[i]['id'] for i in range(pair_count)]
+                    # 构建 CASE 语句
+                    case_segments = []
+                    params = []
+                    for i in range(pair_count):
+                        case_segments.append(" WHEN %s THEN %s")
+                        params.extend([id_list[i], str(jobs_id[i])])
+                    case_sql = """
+                        UPDATE leads_task_list
+                        SET call_job_id = CASE id
+                    """ + "".join(case_segments) + " END\n                        WHERE task_id = %s AND id IN (" + ",".join(["%s"] * pair_count) + ")"
+                    params.append(request.task_id)
+                    params.extend(id_list)
+                    execute_update(case_sql, tuple(params))
         
             return {
                 "status": "success",
@@ -1466,7 +1487,7 @@ async def query_task_execution(
                 }
             )
         
-        # 3. 解析返回数据并更新leads_task_list表
+        # 3. 解析返回数据并更新leads_task_list表（聚合变更，批量更新）
         updated_count = 0
         error_count = 0
         
@@ -1535,6 +1556,7 @@ async def query_task_execution(
         all_tasks_succeeded = True
         task_statuses = []
         
+        updates_batch: list[tuple] = []
         for job_data in jobs_data:
             job_id = job_data.get('JobId')
             tasks = job_data.get('Tasks', [])
@@ -1657,35 +1679,34 @@ async def query_task_execution(
                         job_id
                     )
                     
-                    affected_rows = execute_update(update_query, update_params)
-                    if affected_rows > 0:
-                        updated_count += 1
-                        # 调试日志：记录更新成功
-                        print(f"[query-task-execution] job_id={job_id} 数据库更新成功，status={job_status}")
-                        
-                        # 仅首次需要时触发AI：需满足有会话 且 is_interested 为 NULL 且 leads_follow_id 为 NULL
-                        # 优化：使用批量查询的结果，而不是再次查询数据库
-                        if conversation:
-                            try:
-                                current_is_interested = current_data.get('is_interested')
-                                current_leads_follow_id = current_data.get('leads_follow_id')
-                                needs_ai = (
-                                    current_is_interested is None and
-                                    current_leads_follow_id is None
-                                )
-                                if needs_ai:
-                                    def run_ai_follow():
-                                        try:
-                                            print(f"[bg-ai] start job_id={job_id}")
-                                            get_leads_follow_id(job_id)
-                                            print(f"[bg-ai] done job_id={job_id}")
-                                        except Exception as e:
-                                            print(f"[bg-ai] failed job_id={job_id}, err={str(e)}")
-                                    ai_thread = threading.Thread(target=run_ai_follow)
-                                    ai_thread.daemon = True
-                                    ai_thread.start()
-                            except Exception:
-                                pass
+                    # 收集变更，稍后批量更新
+                    updates_batch.append(update_params)
+                    
+                    # 延后统计，由批量更新结果统一计算
+
+                    # 仅首次需要时触发AI：需满足有会话 且 is_interested 为 NULL 且 leads_follow_id 为 NULL
+                    # 优化：使用批量查询的结果，而不是再次查询数据库
+                    if conversation:
+                        try:
+                            current_is_interested = current_data.get('is_interested')
+                            current_leads_follow_id = current_data.get('leads_follow_id')
+                            needs_ai = (
+                                current_is_interested is None and
+                                current_leads_follow_id is None
+                            )
+                            if needs_ai:
+                                def run_ai_follow():
+                                    try:
+                                        print(f"[bg-ai] start job_id={job_id}")
+                                        get_leads_follow_id(job_id)
+                                        print(f"[bg-ai] done job_id={job_id}")
+                                    except Exception as e:
+                                        print(f"[bg-ai] failed job_id={job_id}, err={str(e)}")
+                                ai_thread = threading.Thread(target=run_ai_follow)
+                                ai_thread.daemon = True
+                                ai_thread.start()
+                        except Exception:
+                            pass
                             
                 except Exception as e:
                     error_count += 1
@@ -1714,6 +1735,43 @@ async def query_task_execution(
                 else:
                     print(f"任务 {job_id} 的leads_follow_id已存在，跳过跟进记录创建")
         
+        # 执行批量更新（如果有需要更新的记录） - 使用 PostgreSQL UPDATE FROM VALUES 语法
+        if updates_batch:
+            try:
+                values_placeholder = ",".join(["(%s,%s,%s,%s,%s,%s,%s,%s)"] * len(updates_batch))
+                batch_sql = f"""
+                    UPDATE leads_task_list AS l
+                    SET 
+                        call_status = d.call_status,
+                        planed_time = d.planed_time,
+                        call_task_id = d.call_task_id,
+                        call_conversation = d.call_conversation,
+                        calling_number = d.calling_number,
+                        recording_url = d.recording_url
+                    FROM (
+                        VALUES {values_placeholder}
+                    ) AS d(
+                        call_status, planed_time, call_task_id, call_conversation, calling_number, recording_url, task_id, call_job_id
+                    )
+                    WHERE l.task_id = d.task_id AND l.call_job_id = d.call_job_id
+                """
+                flat_params: list = []
+                for row in updates_batch:
+                    flat_params.extend(list(row))
+                affected_rows = execute_update(batch_sql, tuple(flat_params))
+                updated_count = affected_rows or 0
+                print(f"[query-task-execution] 批量更新完成，影响行数: {updated_count}")
+            except Exception as e:
+                print(f"[query-task-execution] 批量更新失败，回退为逐条：{str(e)}")
+                # 回退为逐条，确保不丢数据
+                for params in updates_batch:
+                    try:
+                        execute_update(update_query, params)
+                        updated_count += 1
+                    except Exception as ie:
+                        error_count += 1
+                        print(f"[query-task-execution] 回退单条更新失败: {str(ie)}")
+
         # 检查所有任务是否都完成
         if task_statuses and all(status in ['Succeeded', 'Failed'] for status in task_statuses):
             # 检查该任务下是否所有线索的leads_follow_id都不为空
@@ -2205,7 +2263,7 @@ def get_leads_follow_id(call_job_id, *, force: bool = False, dry_run: bool = Fal
                 except Exception:
                     pass
             else:
-                # 无会话且非 Failed：改为创建“待人工”跟进，避免流程卡住
+                # 无会话且非 Failed：改为创建"待人工"跟进，避免流程卡住
                 leads_remark = "缺少通话记录，待人工判定；"
                 next_follow_time = None
                 is_interested = 0
@@ -2652,6 +2710,21 @@ async def control_auto_task(
                 "status": "success",
                 "code": 200,
                 "message": "任务检查已完成",
+                "data": {
+                    "is_running": auto_task_monitor.is_running,
+                    "action": request.action
+                }
+            }
+        elif request.action == "light-check":
+            # 立即触发一次轻量后台扫描（拉取录音、触发AI跟进）
+            try:
+                await auto_task_monitor._lightweight_background_loop()
+            except Exception:
+                pass
+            return {
+                "status": "success",
+                "code": 200,
+                "message": "轻量后台扫描已触发一次",
                 "data": {
                     "is_running": auto_task_monitor.is_running,
                     "action": request.action
@@ -3121,3 +3194,148 @@ async def describe_job_group(
                 "message": f"查询任务组详情失败: {str(e)}"
             }
         )
+
+class TaskListItem(BaseModel):
+    """任务列表项（精简字段）"""
+    id: int
+    task_name: str
+    task_type: int
+    create_time: str
+    leads_count: int
+
+
+class TaskListResponse(BaseModel):
+    """任务列表响应（分页）"""
+    status: str
+    code: int
+    message: str
+    data: Dict[str, Any]
+
+
+@auto_call_router.get("/task_list", response_model=TaskListResponse)
+async def get_task_list(
+    page: int = 1,
+    page_size: int = 20,
+    token: Dict[str, Any] = Depends(verify_access_token)
+):
+    """
+    分页查询任务列表（基于登录用户组织）。
+
+    返回字段：任务（task_name）、状态（task_type）、任务ID（id）、创建时间（create_time）、线索数（leads_count）。
+    """
+    try:
+        user_id = token.get("user_id")
+        if not user_id:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "error",
+                    "code": 1003,
+                    "message": "令牌中缺少用户ID信息"
+                }
+            )
+
+        # 获取组织ID
+        org_query = "SELECT dcc_user_org_id FROM users WHERE id = %s"
+        org_result = execute_query(org_query, (user_id,))
+        if not org_result or not org_result[0].get('dcc_user_org_id'):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "error",
+                    "code": 1003,
+                    "message": "用户未绑定组织或组织ID无效"
+                }
+            )
+        organization_id = org_result[0]['dcc_user_org_id']
+
+        # 统计总数
+        count_sql = (
+            "SELECT COUNT(*) AS total FROM call_tasks WHERE organization_id = %s"
+        )
+        count_res = execute_query(count_sql, (organization_id,))
+        total = count_res[0]['total'] if count_res and count_res[0].get('total') else 0
+
+        if total == 0:
+            return {
+                "status": "success",
+                "code": 200,
+                "message": "暂无任务数据",
+                "data": {
+                    "items": [],
+                    "pagination": {
+                        "page": max(1, page),
+                        "page_size": max(1, page_size),
+                        "total": 0,
+                        "total_pages": 0
+                    }
+                }
+            }
+
+        # 计算分页
+        page_size = max(1, page_size)
+        total_pages = (total + page_size - 1) // page_size
+        page = max(1, min(page, total_pages))
+        offset = (page - 1) * page_size
+
+        # 查询页面数据
+        list_sql = (
+            """
+            SELECT id, task_name, task_type, create_time, leads_count
+            FROM call_tasks
+            WHERE organization_id = %s
+            ORDER BY create_time DESC
+            LIMIT %s OFFSET %s
+            """
+        )
+        rows = execute_query(list_sql, (organization_id, page_size, offset))
+
+        items: List[TaskListItem] = []
+        for r in rows or []:
+            create_time_val = r['create_time']
+            create_time_str = create_time_val.strftime("%Y-%m-%d %H:%M:%S") if hasattr(create_time_val, 'strftime') else str(create_time_val)
+            items.append(TaskListItem(
+                id=r['id'],
+                task_name=r['task_name'],
+                task_type=r['task_type'],
+                create_time=create_time_str,
+                leads_count=r['leads_count']
+            ))
+
+        return {
+            "status": "success",
+            "code": 200,
+            "message": "获取任务列表成功",
+            "data": {
+                "items": items,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "total_pages": total_pages
+                }
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "code": 5000,
+                "message": f"获取任务列表失败: {str(e)}"
+            }
+        )
+
+# @auto_call_router.get("/tasks", response_model=GetTasksResponse)
+async def get_tasks_deprecated(
+    token: Dict[str, Any] = Depends(verify_access_token)
+):
+    """
+    已废弃：请使用 /task_list 分页接口
+    """
+    try:
+        raise HTTPException(status_code=410, detail={"status":"error","code":4100,"message":"/tasks 接口已废弃，请使用 /task_list"})
+    except HTTPException:
+        raise

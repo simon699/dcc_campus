@@ -65,15 +65,46 @@ class Sample:
         
         # 如果有策略JSON，添加到请求参数中
         if StrategyJson:
-            # 将策略JSON转换为字符串
+            # 规范化键名和取值，确保与阿里云 OpenAPI 要求一致
+            # 官方示例使用 lowerCamelCase 键，如 maxAttemptsPerDay、minAttemptInterval、repeatBy，
+            # repeatBy 取值应为枚举：Once、Week、Month（大小写敏感）。
             import json
-            dic = {
-                "maxAttemptsPerDay":1, #每日最多尝试呼叫次数，必传
-                "minAttemptInterval":120, #未接通重试间隔时间，单位分钟，必传
-                "RepeatBy":"once", #once不指定。week每周重复，month每月重复，不传该字段默认是立即执行，如果为立即执行，则下面的字段都可以不上传；
+
+            normalized = dict(StrategyJson)  # 复制一份，避免副作用
+
+            # 将可能的大小写或下划线风格键名统一到 lowerCamelCase
+            key_aliases = {
+                "maxAttemptsPerDay": ["maxattemptsperday", "MaxAttemptsPerDay", "max_attempts_per_day"],
+                "minAttemptInterval": ["minattemptinterval", "MinAttemptInterval", "min_attempt_interval"],
+                "repeatBy": ["RepeatBy", "repeatby", "repeat_by"],
             }
-            StrategyJson.update(dic)
-            strategy_json_str = json.dumps(StrategyJson)
+
+            # 反向索引别名处理
+            for canonical, aliases in key_aliases.items():
+                for alias in aliases:
+                    if alias in normalized and canonical not in normalized:
+                        normalized[canonical] = normalized.pop(alias)
+
+            # 设置默认值（仅在缺失时设置），避免覆盖调用方显式传值
+            normalized.setdefault("maxAttemptsPerDay", 1)
+            normalized.setdefault("minAttemptInterval", 120)
+
+            # 规范化 repeatBy 的取值到正确枚举（Once/Week/Month），若缺失则不设置表示立即执行
+            if "repeatBy" in normalized and normalized["repeatBy"]:
+                value = str(normalized["repeatBy"]).strip()
+                # 兼容大小写/中文或缩写
+                mapping = {
+                    "once": "Once",
+                    "week": "Week",
+                    "month": "Month",
+                    "Once": "Once",
+                    "Week": "Week",
+                    "Month": "Month",
+                }
+                normalized["repeatBy"] = mapping.get(value, "Once" if value.lower() == "immediate" else value)
+
+            # 序列化为字符串传给 StrategyJson
+            strategy_json_str = json.dumps(normalized, ensure_ascii=False)
             request_params["strategy_json"] = strategy_json_str
         
         create_job_group_request = outbound_bot_20191226_models.CreateJobGroupRequest(**request_params)

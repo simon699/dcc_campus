@@ -32,6 +32,9 @@ app = FastAPI(
     * **跟进管理** - 线索跟进记录创建和管理（需要access-token验证）
     * **任务管理** - 任务创建和管理（需要access-token验证）
     * **外呼任务管理** - 外呼任务创建和查询（需要access-token验证）
+      
+      任务列表请使用分页接口：`GET /api/task_list?page=1&page_size=20`（返回 `data.items` 与 `data.pagination`，支持滚动加载）。
+      原 `/api/tasks` 已废弃，不再对外提供。
     
     ## 身份验证
     

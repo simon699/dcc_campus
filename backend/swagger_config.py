@@ -24,6 +24,10 @@ tags_metadata = [
         "name": "DCC用户管理",
         "description": "DCC用户的创建、校验和管理接口。支持用户创建、身份验证和状态管理。",
     },
+    {
+        "name": "自动外呼任务",
+        "description": "自动外呼任务的创建、启动、查询与统计等接口。任务列表请使用分页接口 GET /api/task_list（支持滚动加载：page/page_size/pagination）。",
+    },
 ]
 
 # API 响应示例
