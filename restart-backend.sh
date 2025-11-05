@@ -151,22 +151,45 @@ start_backend() {
     # 激活虚拟环境
     source venv/bin/activate
     
-    # 启动FastAPI服务
-    nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload > ../backend.log 2>&1 &
-    local backend_pid=$!
+    # 启动FastAPI服务（不使用 --reload，生产环境更稳定）
+    nohup uvicorn main:app --host 0.0.0.0 --port 8000 > ../backend.log 2>&1 &
     
     # 等待服务启动
-    sleep 5
+    log_info "等待服务启动..."
+    sleep 8
     
-    # 检查服务是否启动成功
-    if ps -p $backend_pid > /dev/null; then
-        log_success "后端服务启动成功 (PID: $backend_pid)"
-        log_info "后端服务运行在: http://localhost:8000"
-        log_info "API文档: http://localhost:8000/docs"
-        log_info "日志文件: backend.log"
+    # 检查端口是否在监听（更可靠的检查方式）
+    local max_attempts=10
+    local attempt=0
+    local port_ready=false
+    
+    while [ $attempt -lt $max_attempts ]; do
+        if netstat -tlnp 2>/dev/null | grep -q ":8000 " || \
+           ss -tlnp 2>/dev/null | grep -q ":8000 " || \
+           lsof -i :8000 2>/dev/null | grep -q LISTEN; then
+            port_ready=true
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+        log_info "等待端口8000就绪... ($attempt/$max_attempts)"
+    done
+    
+    if [ "$port_ready" = true ]; then
+        # 获取实际的 uvicorn 进程 PID
+        local backend_pid=$(ps aux | grep "uvicorn.*main:app" | grep -v grep | awk '{print $2}' | head -1)
+        if [ -n "$backend_pid" ]; then
+            log_success "后端服务启动成功 (PID: $backend_pid)"
+            log_info "后端服务运行在: http://localhost:8000"
+            log_info "API文档: http://localhost:8000/docs"
+            log_info "日志文件: backend.log"
+        else
+            log_warning "端口已监听，但未找到进程ID"
+        fi
     else
-        log_error "后端服务启动失败"
-        log_info "请检查日志文件: backend.log"
+        log_error "后端服务启动失败：端口8000未在监听"
+        log_info "查看日志文件最后20行:"
+        tail -20 ../backend.log 2>/dev/null || echo "无法读取日志文件"
         exit 1
     fi
     
@@ -177,31 +200,53 @@ start_backend() {
 check_service_status() {
     log_info "检查后端服务状态..."
     
-    # 等待服务完全启动
-    sleep 3
+    # 检查端口是否被占用（使用多种方法）
+    local port_listening=false
+    if netstat -tlnp 2>/dev/null | grep -q ":8000 " || \
+       ss -tlnp 2>/dev/null | grep -q ":8000 " || \
+       lsof -i :8000 2>/dev/null | grep -q LISTEN; then
+        port_listening=true
+    fi
     
-    # 检查端口是否被占用
-    if netstat -tlnp 2>/dev/null | grep -q ":8000 "; then
-        log_success "后端服务运行正常 (端口8000)"
+    if [ "$port_listening" = true ]; then
+        log_success "后端服务运行正常 (端口8000正在监听)"
     else
-        log_warning "后端服务可能未完全启动，请稍等片刻"
+        log_error "后端服务端口8000未在监听"
+        log_info "查看日志文件最后30行:"
+        tail -30 backend.log 2>/dev/null || echo "无法读取日志文件"
+        exit 1
     fi
     
     # 检查进程
-    local backend_pids=$(ps aux | grep "uvicorn\|fastapi\|main.py" | grep -v grep | awk '{print $2}' || true)
+    local backend_pids=$(ps aux | grep "uvicorn.*main:app" | grep -v grep | awk '{print $2}' || true)
     if [ -n "$backend_pids" ]; then
         log_success "后端进程运行中: $backend_pids"
     else
         log_error "未发现后端进程"
+        log_info "查看日志文件最后30行:"
+        tail -30 backend.log 2>/dev/null || echo "无法读取日志文件"
         exit 1
     fi
     
-    # 测试API健康检查
-    sleep 2
-    if curl -s "http://localhost:8000/api/health" >/dev/null 2>&1; then
+    # 测试API健康检查（多次尝试）
+    log_info "测试API健康检查..."
+    local health_check_passed=false
+    for i in {1..5}; do
+        sleep 2
+        if curl -s -f "http://localhost:8000/api/health" >/dev/null 2>&1; then
+            health_check_passed=true
+            break
+        fi
+        log_info "健康检查尝试 $i/5..."
+    done
+    
+    if [ "$health_check_passed" = true ]; then
         log_success "API健康检查通过"
     else
-        log_warning "API健康检查失败，服务可能还在启动中"
+        log_warning "API健康检查失败"
+        log_info "尝试直接访问: curl http://localhost:8000/api/health"
+        log_info "查看日志文件最后30行:"
+        tail -30 backend.log 2>/dev/null || echo "无法读取日志文件"
     fi
 }
 
