@@ -69,9 +69,19 @@ check_python_env() {
     # 激活虚拟环境
     source backend/venv/bin/activate
     
-    # 检查uvicorn是否安装
-    if ! python -c "import uvicorn" 2>/dev/null; then
-        log_warning "uvicorn未安装，将安装依赖"
+    # 检查关键依赖是否安装
+    local missing_deps=()
+    local required_modules=("uvicorn" "fastapi" "pandas" "pymysql" "pydantic")
+    
+    for module in "${required_modules[@]}"; do
+        if ! python -c "import $module" 2>/dev/null; then
+            missing_deps+=("$module")
+        fi
+    done
+    
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        log_warning "缺少以下依赖模块: ${missing_deps[*]}"
+        log_info "将安装所有依赖..."
         install_dependencies
     else
         log_success "Python环境检查通过"
@@ -95,15 +105,38 @@ install_dependencies() {
     # 激活虚拟环境
     source venv/bin/activate
     
-    # 配置pip镜像源
-    pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+    # 配置pip镜像源（使用阿里云镜像，更稳定）
+    log_info "配置pip镜像源..."
+    pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ 2>/dev/null || \
+    pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple 2>/dev/null || true
+    
+    # 升级pip
+    log_info "升级pip..."
+    pip install --upgrade pip -q 2>/dev/null || true
     
     # 安装依赖
     if [ -f "requirements.txt" ]; then
+        log_info "从 requirements.txt 安装依赖（这可能需要几分钟）..."
         pip install -r requirements.txt
     else
         log_warning "未找到requirements.txt，安装基础依赖"
-        pip install fastapi uvicorn python-multipart python-jose[cryptography] passlib[bcrypt] python-dotenv mysql-connector-python
+        pip install fastapi uvicorn python-multipart python-jose[cryptography] passlib[bcrypt] python-dotenv pymysql pandas openpyxl
+    fi
+    
+    # 验证关键依赖是否安装成功
+    log_info "验证依赖安装..."
+    local failed_deps=()
+    for module in "uvicorn" "fastapi" "pandas" "pymysql" "pydantic"; do
+        if ! python -c "import $module" 2>/dev/null; then
+            failed_deps+=("$module")
+        fi
+    done
+    
+    if [ ${#failed_deps[@]} -gt 0 ]; then
+        log_error "以下依赖安装失败: ${failed_deps[*]}"
+        log_error "请检查网络连接或手动安装: pip install ${failed_deps[*]}"
+        cd ..
+        exit 1
     fi
     
     cd ..
