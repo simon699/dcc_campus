@@ -268,10 +268,36 @@ export const tasksAPI = {
     };
   })(),
 
-  // 获取任务详情
-  // 已废弃：避免调用 /tasks，FollowupModal 已不再依赖
-
-
+  // 获取任务详情（包括 leads_task_list 数据）
+  getCallTaskDetails: async (taskId: string | number) => {
+    const response = await apiRequest('/tasks', {
+      method: 'GET'
+    });
+    
+    if (response.status === 'success' && response.data) {
+      // 从任务列表中查找指定任务
+      const task = Array.isArray(response.data) 
+        ? response.data.find((t: any) => String(t.id) === String(taskId))
+        : null;
+      
+      if (task) {
+        return {
+          status: 'success',
+          code: 200,
+          message: '获取任务详情成功',
+          data: task
+        };
+      } else {
+        return {
+          status: 'error',
+          code: 404,
+          message: '未找到指定任务'
+        };
+      }
+    }
+    
+    return response;
+  },
 
   // 获取任务跟进记录
   getTaskFollowupRecords: async (taskId: number) => {
