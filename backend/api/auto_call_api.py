@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query, Body
 import logging
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
@@ -10,7 +10,6 @@ import os
 from database.db import execute_query, execute_update
 from .auth import verify_access_token
 from openAPI.ali_bailian_api import ali_bailian_api
-from .auto_task_monitor import auto_task_monitor, start_auto_check_after_creation
 from openAPI.suspend_jobs import Sample as SuspendJobsSample
 from openAPI.resumeJobs import Sample as ResumeJobsSample
 
@@ -60,234 +59,21 @@ async def create_auto_call_task(
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    创建自动外呼任务
-    
-    根据筛选条件从dcc_leads表中筛选线索，并创建外呼任务
-    
-    需要在请求头中提供access-token进行身份验证
+    创建自动外呼任务（精简版）：控制器仅做基本校验与调用服务。
     """
     try:
-        # 获取用户信息
-        user_id = token.get("user_id")
-        if not user_id:
+        if not token or not token.get("user_id"):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
+                detail={"status": "error", "code": 1003, "message": "令牌中缺少用户ID信息"}
             )
-        
-        # 获取用户组织ID
-        org_query = "SELECT dcc_user_org_id, username FROM users WHERE id = %s"
-        org_result = execute_query(org_query, (user_id,))
-        
-        if not org_result or not org_result[0].get('dcc_user_org_id'):
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "用户未绑定组织或组织ID无效"
-                }
-            )
-        
-        organization_id = org_result[0]['dcc_user_org_id']
-        create_name = org_result[0]['username']
-        
-        # 根据筛选条件查询dcc_leads表中的线索
-        # 构建基础查询
-        base_query = """
-            SELECT DISTINCT l.leads_id, l.leads_user_name, l.leads_user_phone 
-            FROM dcc_leads l
-        """
-        
-        # 构建WHERE条件
-        where_conditions = ["l.organization_id = %s"]
-        query_params = [organization_id]
-        
-        # 添加产品筛选条件
-        if request.size_desc.leads_product:
-            leads_product_placeholders = ','.join(['%s'] * len(request.size_desc.leads_product))
-            where_conditions.append(f"l.leads_product IN ({leads_product_placeholders})")
-            query_params.extend(request.size_desc.leads_product)
-        
-        # 添加等级筛选条件
-        if request.size_desc.leads_type:
-            leads_type_placeholders = ','.join(['%s'] * len(request.size_desc.leads_type))
-            where_conditions.append(f"l.leads_type IN ({leads_type_placeholders})")
-            query_params.extend(request.size_desc.leads_type)
-        
-        # 添加时间筛选条件
-        has_time_conditions = (request.size_desc.first_follow_start or request.size_desc.first_follow_end or 
-                              request.size_desc.latest_follow_start or request.size_desc.latest_follow_end or
-                              request.size_desc.next_follow_start or request.size_desc.next_follow_end or
-                              request.size_desc.is_arrive is not None)
-        
-        if has_time_conditions:
-            # 需要JOIN dcc_leads_follow表
-            base_query = """
-                SELECT DISTINCT l.leads_id, l.leads_user_name, l.leads_user_phone 
-                FROM dcc_leads l
-                LEFT JOIN dcc_leads_follow f ON l.leads_id = f.leads_id
-            """
-            
-            # 解析多时间区间
-            first_follow_ranges = _parse_time_ranges(request.size_desc.first_follow_start, request.size_desc.first_follow_end)
-            latest_follow_ranges = _parse_time_ranges(request.size_desc.latest_follow_start, request.size_desc.latest_follow_end)
-            next_follow_ranges = _parse_time_ranges(request.size_desc.next_follow_start, request.size_desc.next_follow_end)
-            
-            # 构建时间筛选条件
-            time_condition_parts = []
-            
-            # 首次跟进时间筛选
-            if first_follow_ranges:
-                first_follow_conditions = []
-                for start_time, end_time in first_follow_ranges:
-                    if start_time and end_time:
-                        first_follow_conditions.append("(f.frist_follow_time >= %s AND f.frist_follow_time <= %s)")
-                        query_params.extend([start_time, end_time])
-                    elif start_time:
-                        first_follow_conditions.append("f.frist_follow_time >= %s")
-                        query_params.append(start_time)
-                    elif end_time:
-                        first_follow_conditions.append("f.frist_follow_time <= %s")
-                        query_params.append(end_time)
-                if first_follow_conditions:
-                    time_condition_parts.append(f"({' OR '.join(first_follow_conditions)})")
-            
-            # 最近跟进时间筛选
-            if latest_follow_ranges:
-                latest_follow_conditions = []
-                for start_time, end_time in latest_follow_ranges:
-                    if start_time and end_time:
-                        latest_follow_conditions.append("(f.new_follow_time >= %s AND f.new_follow_time <= %s)")
-                        query_params.extend([start_time, end_time])
-                    elif start_time:
-                        latest_follow_conditions.append("f.new_follow_time >= %s")
-                        query_params.append(start_time)
-                    elif end_time:
-                        latest_follow_conditions.append("f.new_follow_time <= %s")
-                        query_params.append(end_time)
-                if latest_follow_conditions:
-                    time_condition_parts.append(f"({' OR '.join(latest_follow_conditions)})")
-            
-            # 下次跟进时间筛选
-            if next_follow_ranges:
-                next_follow_conditions = []
-                for start_time, end_time in next_follow_ranges:
-                    if start_time and end_time:
-                        next_follow_conditions.append("(f.next_follow_time >= %s AND f.next_follow_time <= %s)")
-                        query_params.extend([start_time, end_time])
-                    elif start_time:
-                        next_follow_conditions.append("f.next_follow_time >= %s")
-                        query_params.append(start_time)
-                    elif end_time:
-                        next_follow_conditions.append("f.next_follow_time <= %s")
-                        query_params.append(end_time)
-                if next_follow_conditions:
-                    time_condition_parts.append(f"({' OR '.join(next_follow_conditions)})")
-            
-            # 是否到店筛选
-            if request.size_desc.is_arrive:
-                placeholders = ','.join(['%s'] * len(request.size_desc.is_arrive))
-                time_condition_parts.append(f"f.is_arrive IN ({placeholders})")
-                query_params.extend(request.size_desc.is_arrive)
-            
-            # 添加时间筛选条件到WHERE条件中
-            if time_condition_parts:
-                where_conditions.append(" AND ".join(time_condition_parts))
-        
-        # 构建完整的查询语句
-        leads_query = f"{base_query} WHERE {' AND '.join(where_conditions)}"
-        leads_params = tuple(query_params)
-        
-        leads_result = execute_query(leads_query, leads_params)
-        
-        if not leads_result:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4001,
-                    "message": "未找到符合条件的线索数据"
-                }
-            )
-        
-        # 创建call_tasks记录
-        task_query = """
-            INSERT INTO call_tasks 
-            (task_name, organization_id, create_name_id, create_name, create_time, leads_count, script_id, task_type, size_desc)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        
-        current_time = datetime.now()
-        size_desc_json = json.dumps(request.size_desc.dict())
-        
-        task_params = (
-            request.task_name,
-            organization_id,
-            user_id,
-            create_name,
-            current_time,
-            len(leads_result),
-            request.script_id,
-            1,  # task_type: 1-已创建
-            size_desc_json
-        )
-        
-        # 插入任务记录
-        task_id = execute_update(task_query, task_params)
-        
-        # 批量插入leads_task_list记录（由逐条改为一次性多值插入，降低数据库往返次数）
-        if leads_result:
-            # 组装多行 VALUES 占位符
-            values_placeholder = ",".join(["(%s, %s, %s, %s, %s, %s)"] * len(leads_result))
-            batch_insert_sql = f"""
-                INSERT INTO leads_task_list 
-                (task_id, leads_id, leads_name, leads_phone, call_time, call_job_id)
-                VALUES {values_placeholder}
-            """
 
-            params = []
-            for lead in leads_result:
-                params.extend([
-                    task_id,
-                    lead['leads_id'],
-                    lead['leads_user_name'],
-                    lead['leads_user_phone'],
-                    current_time,
-                    ""
-                ])
-            execute_update(batch_insert_sql, tuple(params))
-        
-        # 构建返回的size_desc，确保包含前端期望的字段
-        size_desc_dict = request.size_desc.dict()
-        
-        # 如果前端提交了ranges字段，确保在返回时也包含这些字段
-        if hasattr(request.size_desc, 'first_follow_ranges') and request.size_desc.first_follow_ranges:
-            size_desc_dict['first_follow_ranges'] = request.size_desc.first_follow_ranges
-        if hasattr(request.size_desc, 'latest_follow_ranges') and request.size_desc.latest_follow_ranges:
-            size_desc_dict['latest_follow_ranges'] = request.size_desc.latest_follow_ranges
-        if hasattr(request.size_desc, 'next_follow_ranges') and request.size_desc.next_follow_ranges:
-            size_desc_dict['next_follow_ranges'] = request.size_desc.next_follow_ranges
-        
-        # 取消：创建后立即检查。首次检查改在 start-call-task 成功后触发
-        
-        return {
-            "status": "success",
-            "code": 200,
-            "message": "自动外呼任务创建成功",
-            "data": {
-                "task_id": task_id,
-                "task_name": request.task_name,
-                "leads_count": len(leads_result),
-                "create_time": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "size_desc": size_desc_dict
-            }
-        }
-        
+        from .auto_call_service import create_auto_call_task_service
+        result = create_auto_call_task_service(request=request, token=token)
+
+        if result.get("status") != "success":
+            raise HTTPException(status_code=400, detail=result)
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -343,213 +129,60 @@ async def get_task_stats(
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    获取任务统计信息（带缓存优化）
-    
-    根据access-token获取用户组织信息，统计call_tasks表中不同任务类型的数量和线索数量
-    使用内存缓存，5分钟过期，提升响应速度
-    
-    需要在请求头中提供access-token进行身份验证
+    获取任务统计信息（精简版）：控制器仅做基本校验与调用服务；保留缓存和状态检查逻辑。
     """
     try:
-        # 获取用户信息
-        user_id = token.get("user_id")
-        if not user_id:
+        if not token or not token.get("user_id"):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
+                detail={"status": "error", "code": 1003, "message": "令牌中缺少用户ID信息"}
             )
-        
-        # 获取用户组织ID
+
+        # 获取用户组织ID（用于缓存和状态检查）
+        user_id = token.get("user_id")
         org_query = "SELECT dcc_user_org_id FROM users WHERE id = %s"
         org_result = execute_query(org_query, (user_id,))
-        
         if not org_result or not org_result[0].get('dcc_user_org_id'):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "用户未绑定组织或组织ID无效"
-                }
+                detail={"status": "error", "code": 1003, "message": "用户未绑定组织或组织ID无效"}
             )
-        
         organization_id = org_result[0]['dcc_user_org_id']
-        
-        # 首先检查是否有活跃任务（task_type = 2 或 3）
-        # 如果所有任务都是 task_type = 4（跟进完成）或 5（已暂停），则不执行状态检查
-        active_task_check = """
-            SELECT COUNT(*) as active_count
-            FROM call_tasks
-            WHERE organization_id = %s AND task_type IN (2, 3)
-        """
+
+        # 状态检查逻辑（保留在 API 层，因为这是接口层的优化）
+        active_task_check = "SELECT COUNT(*) as active_count FROM call_tasks WHERE organization_id = %s AND task_type IN (2, 3)"
         active_result = execute_query(active_task_check, (organization_id,))
         active_count = active_result[0]['active_count'] if active_result else 0
-        
-        # 在统计之前，先检查所有进行中的任务（task_type=2）的状态
-        # 查询所有 task_type=2 且有 job_group_id 的任务
-        checking_tasks_query = """
-            SELECT id, job_group_id, task_name
-            FROM call_tasks 
-            WHERE organization_id = %s AND task_type = 2 AND job_group_id IS NOT NULL AND job_group_id != ''
-        """
-        checking_tasks = execute_query(checking_tasks_query, (organization_id,))
-        
-        # 如果有活跃任务且有需要检查的任务，调用 describe-job-group 检查状态
-        if active_count > 0 and checking_tasks:
-            import sys
-            import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'openAPI'))
-            from describe_job_group import Sample as DescribeJobGroupSample
-            
-            def get_attr_value(obj, *attr_names, default=None):
-                """尝试多个属性名获取值"""
-                for attr_name in attr_names:
-                    if hasattr(obj, attr_name):
-                        value = getattr(obj, attr_name, default)
-                        if value is not None:
-                            return value
-                return default
-            
-            # 批量检查任务状态（异步处理，不阻塞主流程）
-            async def check_task_status(task_id, job_group_id, task_name):
-                try:
-                    job_group_data = await DescribeJobGroupSample.main_async(
-                        [],
-                        job_group_id
-                    )
-                    
-                    if job_group_data:
-                        job_group_status = get_attr_value(job_group_data, 'Status', 'status', default='')
-                        progress = get_attr_value(job_group_data, 'Progress', 'progress', default=None)
-                        
-                        # 根据进度信息判断任务是否真的完成
-                        is_really_completed = False
-                        if progress:
-                            total_jobs = get_attr_value(progress, 'TotalJobs', 'total_jobs', default=0) or 0
-                            total_completed = get_attr_value(progress, 'TotalCompleted', 'total_completed', default=0) or 0
-                            executing = get_attr_value(progress, 'Executing', 'executing', default=0) or 0
-                            scheduling = get_attr_value(progress, 'Scheduling', 'scheduling', default=0) or 0
-                            
-                            # 只有当所有任务都完成（没有执行中和调度中的任务）时，才认为真的完成
-                            if total_jobs > 0 and total_completed >= total_jobs and executing == 0 and scheduling == 0:
-                                is_really_completed = True
-                        
-                        # 查询当前任务状态
-                        current_task_query = "SELECT task_type FROM call_tasks WHERE id = %s"
-                        current_task_result = execute_query(current_task_query, (task_id,))
-                        current_task_type = current_task_result[0]['task_type'] if current_task_result else None
-                        
-                        # 如果任务组状态为 Paused，则标记为暂停 task_type = 5
-                        if isinstance(job_group_status, str) and job_group_status.lower() == 'paused':
-                            if current_task_type != 5:
-                                update_task_type_query = """
-                                    UPDATE call_tasks 
-                                    SET task_type = 5 
-                                    WHERE id = %s
-                                """
-                                execute_update(update_task_type_query, (task_id,))
-                                print(f"任务 {task_id} ({task_name}) 根据任务组状态更新为已暂停（task_type=5）")
-                        
-                        # 如果任务组状态为 Completed/Finished/Stopped 且进度显示真的完成，且当前任务状态不是已完成，更新任务状态
-                        if job_group_status in ['Completed', 'Finished', 'Stopped'] and is_really_completed and current_task_type and current_task_type < 3:
-                            update_task_type_query = """
-                                UPDATE call_tasks 
-                                SET task_type = 3 
-                                WHERE id = %s
-                            """
-                            execute_update(update_task_type_query, (task_id,))
-                            print(f"任务 {task_id} ({task_name}) 根据任务组状态和进度信息更新为已完成（task_type=3）")
-                        elif job_group_status in ['Completed', 'Finished', 'Stopped'] and not is_really_completed and current_task_type == 3:
-                            # 如果状态是已完成但进度显示未完成，回退状态
-                            update_task_type_query = """
-                                UPDATE call_tasks 
-                                SET task_type = 2 
-                                WHERE id = %s
-                            """
-                            execute_update(update_task_type_query, (task_id,))
-                            print(f"任务 {task_id} ({task_name}) 状态回退：任务组状态为 {job_group_status} 但进度显示未完成，回退为 task_type=2")
-                except Exception as e:
-                    # 如果调用失败，不影响主流程，只记录日志
-                    print(f"检查任务 {task_id} 状态失败: {str(e)}")
-                    pass
-            
-            # 并发检查所有任务状态（最多同时检查5个，避免过多并发请求）
-            import asyncio
-            tasks_to_check = [
-                check_task_status(task['id'], task['job_group_id'], task['task_name'])
-                for task in checking_tasks
-            ]
-            # 使用 asyncio.gather 并发执行，但限制并发数
-            if tasks_to_check:
-                try:
-                    # 分批执行，每批最多5个
-                    batch_size = 5
-                    for i in range(0, len(tasks_to_check), batch_size):
-                        batch = tasks_to_check[i:i + batch_size]
-                        await asyncio.gather(*batch, return_exceptions=True)
-                except Exception as e:
-                    print(f"批量检查任务状态时出错: {str(e)}")
-            
-            # 状态检查完成后，清除缓存以确保返回最新统计数据
-            cache_key = f"task_stats_{organization_id}"
-            if cache_key in _task_stats_cache:
-                del _task_stats_cache[cache_key]
-        
+
+
         # 检查缓存
         cache_key = f"task_stats_{organization_id}"
         cached_data = _get_cached_task_stats(cache_key)
         if cached_data:
             return cached_data
-        
-        # 查询不同任务类型的统计信息（优化：使用索引）
-        stats_query = """
-            SELECT 
-                task_type,
-                COUNT(*) as count,
-                COALESCE(SUM(leads_count), 0) as leads_count
-            FROM call_tasks 
-            WHERE organization_id = %s
-            GROUP BY task_type
-            ORDER BY task_type
-        """
-        
-        stats_result = execute_query(stats_query, (organization_id,))
-        
-        # 创建完整的统计结果（包括数量为0的类型）
-        task_types = [1, 2, 3, 4]  # 所有可能的任务类型
-        stats_map = {row['task_type']: row for row in stats_result}
-        
-        stats_list = []
-        for task_type in task_types:
-            if task_type in stats_map:
-                stats_list.append(TaskTypeStats(
-                    task_type=task_type,
-                    count=stats_map[task_type]['count'],
-                    leads_count=stats_map[task_type]['leads_count'] or 0
-                ))
-            else:
-                stats_list.append(TaskTypeStats(
-                    task_type=task_type,
-                    count=0,
-                    leads_count=0
-                ))
-        
-        result = {
-            "status": "success",
-            "code": 200,
-            "message": "获取任务统计信息成功",
-            "data": stats_list
-        }
-        
+
+        # 调用服务层获取统计数据
+        from .auto_call_service import get_task_stats_service
+        result = get_task_stats_service(token=token)
+
+        if result.get("status") != "success":
+            raise HTTPException(status_code=400, detail=result)
+
+        # 转换数据格式以匹配 TaskTypeStats
+        stats_list = [
+            TaskTypeStats(
+                task_type=item['task_type'],
+                count=item['count'],
+                leads_count=item['leads_count']
+            )
+            for item in result['data']
+        ]
+        result['data'] = stats_list
+
         # 缓存结果
         _set_cached_task_stats(cache_key, result)
-        
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -594,243 +227,50 @@ async def get_tasks(
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    根据access-token获取call_tasks表中的任务信息
-    
-    返回内容包括：id、task_name、create_time、size_desc、leads_count，
-    以及关联的leads_task_list中的leads_name、leads_phone、call_status信息
-    
-    需要在请求头中提供access-token进行身份验证
+    获取任务列表（精简版）：控制器仅做基本校验与调用服务。
     """
     try:
-        # 获取用户信息
-        user_id = token.get("user_id")
-        if not user_id:
+        if not token or not token.get("user_id"):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
+                detail={"status": "error", "code": 1003, "message": "令牌中缺少用户ID信息"}
             )
-        
-        # 获取用户组织ID
-        org_query = "SELECT dcc_user_org_id FROM users WHERE id = %s"
-        org_result = execute_query(org_query, (user_id,))
-        
-        if not org_result or not org_result[0].get('dcc_user_org_id'):
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "用户未绑定组织或组织ID无效"
-                }
-            )
-        
-        organization_id = org_result[0]['dcc_user_org_id']
-        
-        # 查询call_tasks表中的任务信息（包含job_group_id用于状态更新）
-        tasks_query = """
-            SELECT 
-                id,
-                task_name,
-                create_time,
-                size_desc,
-                leads_count,
-                task_type,
-                organization_id,
-                create_name,
-                script_id,
-                job_group_id
-            FROM call_tasks 
-            WHERE organization_id = %s
-            ORDER BY create_time DESC
-        """
-        
-        tasks_result = execute_query(tasks_query, (organization_id,))
-        
-        if not tasks_result:
-            return {
-                "status": "success",
-                "code": 200,
-                "message": "暂无任务数据",
-                "data": []
-            }
-        
-        # 在返回任务列表之前，先调用 describe-job-group 更新任务状态
-        # 查询所有 task_type=2 且有 job_group_id 的任务
-        checking_tasks_query = """
-            SELECT id, job_group_id, task_name, task_type
-            FROM call_tasks 
-            WHERE organization_id = %s AND task_type = 2 AND job_group_id IS NOT NULL AND job_group_id != ''
-        """
-        checking_tasks = execute_query(checking_tasks_query, (organization_id,))
-        
-        # 如果有需要检查的任务，调用 describe-job-group 检查状态
-        if checking_tasks:
-            import sys
-            import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'openAPI'))
-            from describe_job_group import Sample as DescribeJobGroupSample
-            
-            def get_attr_value(obj, *attr_names, default=None):
-                """尝试多个属性名获取值"""
-                for attr_name in attr_names:
-                    if hasattr(obj, attr_name):
-                        value = getattr(obj, attr_name, default)
-                        if value is not None:
-                            return value
-                return default
-            
-            # 批量检查任务状态（异步处理）
-            async def check_task_status(task_id, job_group_id, task_name):
-                try:
-                    job_group_data = await DescribeJobGroupSample.main_async(
-                        [],
-                        job_group_id
-                    )
-                    
-                    if job_group_data:
-                        job_group_status = get_attr_value(job_group_data, 'Status', 'status', default='')
-                        progress = get_attr_value(job_group_data, 'Progress', 'progress', default=None)
-                        
-                        # 根据进度信息判断任务是否真的完成
-                        is_really_completed = False
-                        if progress:
-                            total_jobs = get_attr_value(progress, 'TotalJobs', 'total_jobs', default=0) or 0
-                            total_completed = get_attr_value(progress, 'TotalCompleted', 'total_completed', default=0) or 0
-                            executing = get_attr_value(progress, 'Executing', 'executing', default=0) or 0
-                            scheduling = get_attr_value(progress, 'Scheduling', 'scheduling', default=0) or 0
-                            
-                            # 只有当所有任务都完成（没有执行中和调度中的任务）时，才认为真的完成
-                            if total_jobs > 0 and total_completed >= total_jobs and executing == 0 and scheduling == 0:
-                                is_really_completed = True
-                        
-                        # 查询当前任务状态
-                        current_task_query = "SELECT task_type FROM call_tasks WHERE id = %s"
-                        current_task_result = execute_query(current_task_query, (task_id,))
-                        current_task_type = current_task_result[0]['task_type'] if current_task_result else None
-                        
-                        # 如果任务组状态为 Completed/Finished/Stopped 且进度显示真的完成，且当前任务状态不是已完成，更新任务状态
-                        if job_group_status in ['Completed', 'Finished', 'Stopped'] and is_really_completed and current_task_type and current_task_type < 3:
-                            update_task_type_query = """
-                                UPDATE call_tasks 
-                                SET task_type = 3 
-                                WHERE id = %s
-                            """
-                            execute_update(update_task_type_query, (task_id,))
-                            print(f"任务 {task_id} ({task_name}) 根据任务组状态和进度信息更新为已完成（task_type=3）")
-                            
-                            # 同时更新内存中的任务状态，避免重新查询数据库
-                            for task in tasks_result:
-                                if task['id'] == task_id:
-                                    task['task_type'] = 3
-                                    break
-                        elif job_group_status in ['Completed', 'Finished', 'Stopped'] and not is_really_completed and current_task_type == 3:
-                            # 如果状态是已完成但进度显示未完成，回退状态
-                            update_task_type_query = """
-                                UPDATE call_tasks 
-                                SET task_type = 2 
-                                WHERE id = %s
-                            """
-                            execute_update(update_task_type_query, (task_id,))
-                            print(f"任务 {task_id} ({task_name}) 状态回退：任务组状态为 {job_group_status} 但进度显示未完成，回退为 task_type=2")
-                            
-                            # 同时更新内存中的任务状态
-                            for task in tasks_result:
-                                if task['id'] == task_id:
-                                    task['task_type'] = 2
-                                    break
-                except Exception as e:
-                    # 如果调用失败，不影响主流程，只记录日志
-                    print(f"检查任务 {task_id} 状态失败: {str(e)}")
-                    pass
-            
-            # 并发检查所有任务状态（最多同时检查5个，避免过多并发请求）
-            import asyncio
-            semaphore = asyncio.Semaphore(5)
-            
-            async def check_with_semaphore(task_id, job_group_id, task_name):
-                async with semaphore:
-                    await check_task_status(task_id, job_group_id, task_name)
-            
-            # 在 FastAPI 异步函数中，直接使用 await 并发执行所有检查
-            await asyncio.gather(*[
-                check_with_semaphore(
-                    task['id'], 
-                    task['job_group_id'], 
-                    task['task_name']
-                ) for task in checking_tasks
-            ], return_exceptions=True)
-        
-        # 获取所有任务ID
-        task_ids = [task['id'] for task in tasks_result]
-        
-        # 查询leads_task_list表中的线索信息
-        leads_query = """
-            SELECT 
-                task_id,
-                leads_name,
-                leads_phone,
-                call_status
-            FROM leads_task_list 
-            WHERE task_id IN ({})
-            ORDER BY task_id, id
-        """.format(','.join(['%s'] * len(task_ids)))
-        
-        leads_result = execute_query(leads_query, task_ids)
-        
-        # 将线索信息按task_id分组
-        leads_by_task = {}
-        for lead in leads_result:
-            task_id = lead['task_id']
-            if task_id not in leads_by_task:
-                leads_by_task[task_id] = []
-            
-            # 如果call_status为空，则返回默认状态
-            call_status = lead['call_status'] if lead['call_status'] else CALL_STATUS_CONSTANTS["NOT_STARTED"]
-            
-            leads_by_task[task_id].append(TaskLeadsInfo(
-                leads_name=lead['leads_name'],
-                leads_phone=lead['leads_phone'],
-                call_status=call_status
-            ))
-        
-        # 构建返回数据
+
+        from .auto_call_service import get_tasks_service
+        result = await get_tasks_service(token=token)
+
+        if result.get("status") != "success":
+            raise HTTPException(status_code=400, detail=result)
+
+        # 转换数据格式以匹配 TaskInfo
         tasks_data = []
-        for task in tasks_result:
-            task_id = task['id']
-            leads_list = leads_by_task.get(task_id, [])
-            
-            # 解析size_desc JSON数据
-            size_desc = {}
-            if task['size_desc']:
-                try:
-                    size_desc = json.loads(task['size_desc'])
-                except:
-                    size_desc = {}
-            
+        for item in result['data']:
             tasks_data.append(TaskInfo(
-                id=task['id'],
-                task_name=task['task_name'],
-                create_time=task['create_time'].strftime("%Y-%m-%d %H:%M:%S") if hasattr(task['create_time'], 'strftime') else str(task['create_time']),
-                size_desc=size_desc,
-                leads_count=task['leads_count'],
-                task_type=task['task_type'],
-                organization_id=task['organization_id'],
-                create_name=task['create_name'],
-                script_id=task['script_id'],
-                leads_list=leads_list
+                id=item['id'],
+                task_name=item['task_name'],
+                create_time=item['create_time'],
+                size_desc=item['size_desc'],
+                leads_count=item['leads_count'],
+                task_type=item['task_type'],
+                organization_id=item['organization_id'],
+                create_name=item['create_name'],
+                script_id=item['script_id'],
+                leads_list=[
+                    TaskLeadsInfo(
+                        leads_name=lead['leads_name'],
+                        leads_phone=lead['leads_phone'],
+                        call_status=lead['call_status']
+                    )
+                    for lead in item['leads_list']
+                ]
             ))
-        
+
         return {
             "status": "success",
             "code": 200,
             "message": "获取任务信息成功",
             "data": tasks_data
         }
-        
     except HTTPException:
         raise
     except Exception as e:
@@ -862,80 +302,22 @@ async def update_script_id(
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    更新call_tasks表的script_id
-    
-    根据task_id更新对应任务的script_id字段
-    
-    需要在请求头中提供access-token进行身份验证
+    更新call_tasks表的script_id（精简版）：控制器仅做基本校验与调用服务。
     """
     try:
-        # 获取用户信息
-        user_id = token.get("user_id")
-        if not user_id:
+        if not token or not token.get("user_id"):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
+                detail={"status": "error", "code": 1003, "message": "令牌中缺少用户ID信息"}
             )
-        
-        # 获取用户组织ID
-        org_query = "SELECT dcc_user_org_id FROM users WHERE id = %s"
-        org_result = execute_query(org_query, (user_id,))
-        
-        if not org_result or not org_result[0].get('dcc_user_org_id'):
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "用户未绑定组织或组织ID无效"
-                }
-            )
-        
-        organization_id = org_result[0]['dcc_user_org_id']
-        
-        # 验证任务是否存在且属于该组织
-        task_query = """
-            SELECT id, task_name, script_id 
-            FROM call_tasks 
-            WHERE id = %s AND organization_id = %s
-        """
-        
-        task_result = execute_query(task_query, (request.task_id, organization_id))
-        
-        if not task_result:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "status": "error",
-                    "code": 4004,
-                    "message": "任务不存在或无权限访问"
-                }
-            )
-        
-        # 更新script_id
-        update_query = """
-            UPDATE call_tasks 
-            SET script_id = %s 
-            WHERE id = %s AND organization_id = %s
-        """
-        
-        execute_update(update_query, (request.script_id, request.task_id, organization_id))
-        
-        return {
-            "status": "success",
-            "code": 200,
-            "message": "脚本ID更新成功",
-            "data": {
-                "task_id": request.task_id,
-                "script_id": request.script_id,
-                "task_name": task_result[0]['task_name']
-            }
-        }
-        
+
+        from .auto_call_service import update_script_id_service
+        result = update_script_id_service(request=request, token=token)
+
+        if result.get("status") != "success":
+            status_code = 404 if result.get("code") == 4004 else 400
+            raise HTTPException(status_code=status_code, detail=result)
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -966,242 +348,22 @@ async def start_call_task(
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    开始进行外呼任务
-    
-    根据task_id开始执行外呼任务，包括：
-    1. 调用create_job_group获取job_group_id和子任务的call_job_id
-    2. 更新call_tasks、leads_task_list两个表的数据
-    3. 调用assign_jobs执行外呼任务
-    4. 更新leads_task_list
-    
-    需要在请求头中提供access-token进行身份验证
+    开始进行外呼任务（精简版）：控制器仅做基本校验与调用服务。
     """
     try:
-        # 获取用户信息
-        user_id = token.get("user_id")
-        if not user_id:
+        if not token or not token.get("user_id"):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
+                detail={"status": "error", "code": 1003, "message": "令牌中缺少用户ID信息"}
             )
-        
-        # 获取用户组织ID
-        org_query = "SELECT dcc_user_org_id FROM users WHERE id = %s"
-        org_result = execute_query(org_query, (user_id,))
-        
-        if not org_result or not org_result[0].get('dcc_user_org_id'):
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "用户未绑定组织或组织ID无效"
-                }
-            )
-        
-        organization_id = org_result[0]['dcc_user_org_id']
-        
-        # 验证任务是否存在且属于该组织
-        task_query = """
-            SELECT id, task_name, script_id, leads_count, size_desc, task_type
-            FROM call_tasks 
-            WHERE id = %s AND organization_id = %s
-        """
-        
-        task_result = execute_query(task_query, (request.task_id, organization_id))
-        
-        if not task_result:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "status": "error",
-                    "code": 4004,
-                    "message": "任务不存在或无权限访问"
-                }
-            )
-        
-        task_info = task_result[0]
-        
-        # 检查任务状态
-        if task_info['task_type'] != 1:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4005,
-                    "message": "任务状态不正确，只有已创建状态的任务可以开始外呼"
-                }
-            )
-        
-        # 检查是否有脚本ID
-        if not task_info['script_id']:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4006,
-                    "message": "任务未配置脚本ID，请先配置脚本"
-                }
-            )
-        
-        # 获取任务下的所有线索
-        leads_query = """
-            SELECT id, leads_name, leads_phone, leads_id
-            FROM leads_task_list 
-            WHERE task_id = %s
-            ORDER BY id
-        """
-        
-        leads_result = execute_query(leads_query, (request.task_id,))
-        
-        if not leads_result:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4007,
-                    "message": "任务下没有线索数据"
-                }
-            )
-        
-        # 导入create_job_group模块
-        import sys
-        import os
-        sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'openAPI'))
-        from create_job_group import Sample as CreateJobGroupSample
-        
-        # 1. 调用create_job_group获取job_group_id
-        job_group_name = f"任务_{request.task_id}_{task_info['task_name']}"
-        job_group_description = f"自动外呼任务_{request.task_id}"
-        
-        try:
-            job_group = CreateJobGroupSample.main(
-                CreateJobGroupSample(),
-                [],
-                job_group_name,
-                job_group_description,
-                None,
-                task_info['script_id']
-            )
-            # 防御式校验，避免 None 访问属性
-            if not job_group or not getattr(job_group, 'job_group_id', None):
-                raise RuntimeError("创建任务组返回为空或缺少 job_group_id")
-            job_group_id = job_group.job_group_id
-            
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "status": "error",
-                    "code": 5001,
-                    "message": f"创建任务组失败: {str(e)}"
-                }
-            )
-        
-        # 2. 更新call_tasks表，设置job_group_id和task_type
-        update_task_query = """
-            UPDATE call_tasks 
-            SET job_group_id = %s, task_type = %s 
-            WHERE id = %s
-        """
-        
-        execute_update(update_task_query, (job_group_id, 2, request.task_id))  # task_type: 2-开始外呼
-        
-        # 3. 准备assign_jobs的数据
-        jobs_json = []
-        for lead in leads_result:
-            job_data = {
-                "extras": [],
-                "contacts": [
-                    {
-                        "phoneNumber": lead['leads_phone'],
-                        "name": lead['leads_name'],
-                        "referenceId": f"task_{request.task_id}_lead_{lead['leads_id']}"
-                    }
-                ]
-            }
-            jobs_json.append(job_data)
-        
-        # 导入assign_jobs模块
-        from openAPI.assign_jobs import Sample as AssignJobsSample
-        
-        # 4. 调用assign_jobs执行外呼任务
-        try:
-            jobs_id = AssignJobsSample.main(
-                job_group_id,
-                jobs_json
-            )
-            
-        except Exception as e:
-            # 如果assign_jobs失败，回滚任务状态
-            rollback_query = """
-                UPDATE call_tasks 
-                SET task_type = %s, job_group_id = NULL 
-                WHERE id = %s
-            """
-            execute_update(rollback_query, (1, request.task_id))
-            
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "status": "error",
-                    "code": 5002,
-                    "message": f"分配外呼任务失败: {str(e)}"
-                }
-            )
-        
-        # 5. 更新leads_task_list表，设置call_job_id
-        # assign_jobs返回的jobs_id是一个列表，需要按顺序分配给每个线索
-        if jobs_id:
-            # 获取当前任务的所有线索记录，按ID排序确保顺序一致
-            get_leads_query = """
-                SELECT id, leads_id 
-                FROM leads_task_list 
-                WHERE task_id = %s 
-                ORDER BY id
-            """
-            leads_records = execute_query(get_leads_query, (request.task_id,))
-            
-            # 批量更新 call_job_id（使用 CASE WHEN 按 id 对应 jobs_id，减少多次往返）
-            if leads_records:
-                pair_count = min(len(leads_records), len(jobs_id))
-                if pair_count > 0:
-                    id_list = [leads_records[i]['id'] for i in range(pair_count)]
-                    # 构建 CASE 语句
-                    case_segments = []
-                    params = []
-                    for i in range(pair_count):
-                        case_segments.append(" WHEN %s THEN %s")
-                        params.extend([id_list[i], str(jobs_id[i])])
-                    case_sql = """
-                        UPDATE leads_task_list
-                        SET call_job_id = CASE id
-                    """ + "".join(case_segments) + " END\n                        WHERE task_id = %s AND id IN (" + ",".join(["%s"] * pair_count) + ")"
-                    params.append(request.task_id)
-                    params.extend(id_list)
-                    execute_update(case_sql, tuple(params))
-        
-            return {
-                "status": "success",
-                "code": 200,
-                "message": "外呼任务开始成功",
-                "data": {
-                    "task_id": request.task_id,
-                    "task_name": task_info['task_name'],
-                    "job_group_id": job_group_id,
-                    "jobs_id": jobs_id,
-                    "leads_count": len(leads_result),
-                    "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-            }
-            
-            # 注意：在成功返回前异步触发首次检查（含2秒延迟）
-            asyncio.create_task(start_auto_check_after_creation(request.task_id))
-        
+
+        from .auto_call_service import start_call_task_service
+        result = start_call_task_service(request=request, token=token)
+
+        if result.get("status") != "success":
+            status_code = 500 if result.get("code", 0) >= 5000 else 400
+            raise HTTPException(status_code=status_code, detail=result)
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -1223,6 +385,7 @@ class QueryTaskExecutionRequest(BaseModel):
     skip_recording: bool = True  # 是否跳过录音URL获取（默认跳过以提升性能）
     only_followed: bool = False  # 是否只查询已跟进的记录（默认False，查询所有记录）
     interest: Optional[int] = None  # 按意向筛选：0=无法判断,1=有意向,2=无意向；None=不限
+    apply_update: bool = False  # 是否将查询结果回写数据库、触发AI与状态推进（默认仅查询缓存）
 
 class TaskExecutionResponse(BaseModel):
     """查询外呼任务执行情况响应"""
@@ -1230,6 +393,498 @@ class TaskExecutionResponse(BaseModel):
     code: int
     message: str
     data: Dict[str, Any]
+
+
+def _query_task_execution_core(
+    *,
+    request: "QueryTaskExecutionRequest",
+    task_info: Dict[str, Any],
+    job_group_status: Optional[str]
+) -> Dict[str, Any]:
+    """查询外呼任务执行核心逻辑。
+
+    仅负责：
+    - 读取当前页关联的 call_job_id
+    - 调用外部 list_jobs 获取任务执行数据
+    - 组装返回数据（含统计与补充字段）
+    - 基于 request.apply_update 决定是否执行数据库更新与衍生操作
+    """
+    # 1. 直接查询已有的 call_job_id（按分页），不再通过 list_jobs_by_group 获取
+    page_size = max(1, request.page_size)
+    page = max(1, request.page)
+
+    # 先查询总数
+    count_condition = "task_id = %s AND call_job_id IS NOT NULL AND call_job_id != ''"
+    count_params = [request.task_id]
+
+    # 如果 apply_update=True（自动化任务），只处理 call_status 为空的记录，避免重复处理已有数据
+    if request.apply_update:
+        count_condition += " AND (call_status IS NULL OR call_status = '')"
+
+    if request.only_followed:
+        count_condition += " AND leads_follow_id IS NOT NULL"
+
+    # 按意向筛选
+    if request.interest is not None and request.interest in (0, 1, 2):
+        count_condition += " AND is_interested = %s"
+        count_params.append(request.interest)
+
+    count_query = f"""
+        SELECT COUNT(*) as total
+        FROM leads_task_list 
+        WHERE {count_condition}
+    """
+    count_result = execute_query(count_query, tuple(count_params))
+    total_jobs = count_result[0]['total'] if count_result and count_result[0].get('total') else 0
+
+    if total_jobs == 0:
+        error_message = "任务下没有已分配的外呼任务" if not request.only_followed else "任务下没有已跟进的记录"
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "code": 4008,
+                "message": error_message
+            }
+        )
+
+    # 计算分页信息
+    total_pages = (total_jobs + page_size - 1) // page_size  # 向上取整
+    page = max(1, min(request.page, total_pages))  # 确保页码在有效范围内
+
+    # 在数据库层面分页查询当前页的 call_job_id
+    offset = (page - 1) * page_size
+    leads_query_params = count_params + [page_size, offset]
+    leads_query = f"""
+        SELECT call_job_id, reference_id, leads_phone
+        FROM leads_task_list 
+        WHERE {count_condition}
+        ORDER BY id
+        LIMIT %s OFFSET %s
+    """
+
+    leads_result = execute_query(leads_query, tuple(leads_query_params))
+
+    if not leads_result:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "code": 4009,
+                "message": "没有有效的call_job_id"
+            }
+        )
+
+    # 提取当前页的call_job_id
+    paginated_call_job_ids = [lead['call_job_id'] for lead in leads_result if lead.get('call_job_id')]
+
+    if not paginated_call_job_ids:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "code": 4009,
+                "message": "没有有效的call_job_id"
+            }
+        )
+    
+    # 构建 reference_id 和 phone_number 的映射
+    db_ref_id_map = {}  # reference_id -> call_job_id
+    db_phone_map = {}   # phone -> call_job_id
+    db_job_id_set = set(paginated_call_job_ids)
+    
+    for lead in leads_result:
+        call_job_id = lead['call_job_id']
+        reference_id = lead.get('reference_id')
+        leads_phone = lead.get('leads_phone')
+        
+        if reference_id and str(reference_id).strip():
+            db_ref_id_map[str(reference_id).strip()] = call_job_id
+        if leads_phone:
+            db_phone_map[str(leads_phone)] = call_job_id
+
+    # 2. 调用list_jobs接口获取任务执行状态（只查询当前页的数据）
+    # 注意：阿里云 API 可能限制单次请求的 job_id 数量（通常为 100），需要分批处理
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'openAPI'))
+    from list_jobs import Sample as ListJobsSample
+    from download_recording import Sample as DownloadRecordingSample
+
+    # 分批处理，每批最多 100 个 job_id（避免 API 限制）
+    batch_size = 100
+    all_jobs_data = []
+    batch_errors = []
+    
+    try:
+        # 调试日志：记录调用阿里云接口
+        print(f"[query-task-execution] 准备调用阿里云接口，task_id={request.task_id}, page={page}, job_ids数量={len(paginated_call_job_ids)}")
+        print(f"[query-task-execution] job_ids示例: {paginated_call_job_ids[:3]}...")  # 只打印前3个
+        
+        # 分批调用 API
+        for i in range(0, len(paginated_call_job_ids), batch_size):
+            batch = paginated_call_job_ids[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(paginated_call_job_ids) + batch_size - 1) // batch_size
+            
+            try:
+                print(f"[query-task-execution] 调用第 {batch_num}/{total_batches} 批，job_ids数量={len(batch)}")
+                batch_jobs_data = ListJobsSample.main([], job_ids=batch)
+                
+                if batch_jobs_data:
+                    if isinstance(batch_jobs_data, list):
+                        all_jobs_data.extend(batch_jobs_data)
+                    else:
+                        all_jobs_data.append(batch_jobs_data)
+                    
+                    print(f"[query-task-execution] 第 {batch_num} 批调用成功，返回数据数量={len(batch_jobs_data) if isinstance(batch_jobs_data, list) else 1}")
+                else:
+                    print(f"[query-task-execution] 第 {batch_num} 批返回空数据")
+                    
+            except Exception as batch_e:
+                error_msg = f"第 {batch_num} 批调用失败: {str(batch_e)}"
+                print(f"[query-task-execution] {error_msg}")
+                batch_errors.append(error_msg)
+                # 继续处理下一批，不中断整个流程
+        
+        # 如果所有批次都失败，抛出异常
+        if not all_jobs_data and batch_errors:
+            raise Exception(f"所有批次调用都失败: {'; '.join(batch_errors)}")
+        
+        # 调试日志：记录最终结果
+        print(f"[query-task-execution] 所有批次调用完成，总返回数据数量={len(all_jobs_data)}")
+        if batch_errors:
+            print(f"[query-task-execution] 警告：有 {len(batch_errors)} 个批次调用失败: {'; '.join(batch_errors)}")
+
+    except Exception as e:
+        # 调试日志：记录调用失败
+        print(f"[query-task-execution] 阿里云接口调用失败: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "code": 5003,
+                "message": f"获取外呼任务状态失败: {str(e)}"
+            }
+        )
+    
+    # 使用合并后的数据
+    jobs_data = all_jobs_data
+
+    # 3. 解析返回数据并更新leads_task_list表（聚合变更，批量更新）
+    updated_count = 0
+    error_count = 0
+
+    # 如果没有获取到job数据，直接返回空结果（total_jobs已在前面计算）
+    if not jobs_data:
+        return {
+            "status": "success",
+            "code": 200,
+            "message": "未获取到外呼任务数据",
+            "data": {
+                "task_id": request.task_id,
+                "task_name": task_info['task_name'],
+                "task_type": task_info['task_type'],
+                "total_jobs": total_jobs,
+                "updated_count": 0,
+                "error_count": 0,
+                "query_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "jobs_data": [],
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages,
+                    "total_count": total_jobs
+                }
+            }
+        }
+
+    # 优化：批量查询所有job的当前状态，避免N+1查询问题
+    # 通过 reference_id 和 phone_number 匹配，找出实际匹配到的 call_job_id
+    from .auto_call_utils import safe_getattr
+    
+    matched_job_ids = set()
+    job_id_to_call_job_id_map = {}  # JobId -> call_job_id 映射
+    
+    for job_data in jobs_data:
+        job_id = job_data.get('JobId')
+        contacts = job_data.get('Contacts', [])
+        
+        # 优先使用 reference_id 匹配
+        matched = False
+        matched_call_job_id = None
+        
+        if contacts:
+            for contact in contacts:
+                if isinstance(contact, dict):
+                    reference_id = safe_getattr(contact, 'ReferenceId', 'referenceId', 'reference_id', default=None)
+                    phone_number = safe_getattr(contact, 'PhoneNumber', 'phoneNumber', 'phone_number', default=None)
+                    
+                    # 优先使用 reference_id 匹配
+                    if reference_id and str(reference_id).strip():
+                        ref_id_str = str(reference_id).strip()
+                        if ref_id_str in db_ref_id_map:
+                            matched_call_job_id = db_ref_id_map[ref_id_str]
+                            matched_job_ids.add(matched_call_job_id)
+                            matched = True
+                            if job_id:
+                                job_id_to_call_job_id_map[job_id] = matched_call_job_id
+                            break
+                    
+                    # 如果没有 reference_id，使用 phone_number 匹配
+                    if not matched and phone_number:
+                        phone_str = str(phone_number)
+                        if phone_str in db_phone_map:
+                            matched_call_job_id = db_phone_map[phone_str]
+                            matched_job_ids.add(matched_call_job_id)
+                            matched = True
+                            if job_id:
+                                job_id_to_call_job_id_map[job_id] = matched_call_job_id
+                            break
+        
+        # 如果通过 reference_id 和 phone_number 都没匹配到，但 JobId 在请求列表中，也算匹配
+        if not matched and job_id and job_id in db_job_id_set:
+            matched_job_ids.add(job_id)
+            matched_call_job_id = job_id
+            job_id_to_call_job_id_map[job_id] = job_id
+    
+    # 找出未匹配到的 call_job_id（在请求中但不在返回结果中）
+    unmatched_job_ids = [job_id for job_id in paginated_call_job_ids if job_id not in matched_job_ids]
+    
+    # 使用匹配到的 call_job_id 进行查询
+    job_ids = list(matched_job_ids)
+
+    # 批量查询所有job的当前数据状态
+    current_data_map = {}
+    follow_data_map = {}
+
+    if job_ids:
+        # 一次性查询所有job的当前状态
+        placeholders = ','.join(['%s'] * len(job_ids))
+        batch_query = f"""
+            SELECT call_job_id, call_status, planed_time, call_task_id, 
+                   call_conversation, calling_number, recording_url,
+                   is_interested, leads_follow_id
+            FROM leads_task_list 
+            WHERE task_id = %s AND call_job_id IN ({placeholders})
+        """
+        batch_result = execute_query(batch_query, (request.task_id, *job_ids))
+
+        # 构建字典，O(1) 查找
+        current_data_map = {row['call_job_id']: row for row in batch_result} if batch_result else {}
+
+        # 批量查询跟进数据
+        follow_ids = [row['leads_follow_id'] for row in batch_result if row.get('leads_follow_id')]
+        if follow_ids:
+            follow_placeholders = ','.join(['%s'] * len(follow_ids))
+            follow_batch_query = f"""
+                SELECT id, leads_id, follow_time, leads_remark, 
+                       frist_follow_time, new_follow_time, next_follow_time,
+                       is_arrive, frist_arrive_time
+                FROM dcc_leads_follow 
+                WHERE id IN ({follow_placeholders})
+            """
+            follow_batch_result = execute_query(follow_batch_query, follow_ids)
+            follow_data_map = {row['id']: row for row in follow_batch_result} if follow_batch_result else {}
+
+    # 用于检查所有任务是否都完成
+    task_statuses = []
+
+    updates_batch: list[tuple] = []
+    for job_data in jobs_data:
+        job_id = job_data.get('JobId')
+        # 通过映射找到对应的 call_job_id
+        call_job_id = job_id_to_call_job_id_map.get(job_id, job_id)
+        tasks = job_data.get('Tasks', [])
+        # 记录任务状态用于后续检查
+        task_statuses.append(job_data.get('Status', ''))
+        job_status = job_data.get('Status', '')
+
+        if tasks:
+            # 获取最后一个任务的信息
+            last_task = tasks[-1]
+
+            # 解析任务数据
+            planned_time = last_task.get('PlanedTime', None)
+            call_task_id = last_task.get('TaskId', '')
+            conversation = last_task.get('Conversation', '')
+            actual_time = last_task.get('ActualTime', None)
+            calling_number = last_task.get('CallingNumber', '')
+
+            # 转换时间戳
+            plan_time = None
+            call_time = None
+
+            if planned_time:
+                try:
+                    plan_time = datetime.fromtimestamp(int(planned_time) / 1000)
+                except:
+                    plan_time = None
+
+            if actual_time:
+                try:
+                    call_time = datetime.fromtimestamp(int(actual_time) / 1000)
+                except:
+                    call_time = None
+
+            # 优化：从批量查询的结果中获取当前数据，而不是单独查询
+            # 使用 call_job_id 而不是 job_id 来查找
+            current_data = current_data_map.get(call_job_id, {})
+            current_status = current_data.get('call_status')
+            current_plan_time = current_data.get('planed_time')
+            current_call_task_id = current_data.get('call_task_id')
+            current_conversation = current_data.get('call_conversation')
+            current_calling_number = current_data.get('calling_number')
+            current_recording_url = current_data.get('recording_url')
+
+            # 获取录音URL - 如果skip_recording为True，跳过耗时操作
+            recording_url = None
+            if (not request.skip_recording) and job_status == 'Succeeded' and call_task_id:
+                current_recording_url = current_recording_url
+                try:
+                    new_recording_url = DownloadRecordingSample.main([], task_id=call_task_id)
+                    if new_recording_url:
+                        recording_url = new_recording_url
+                    elif current_recording_url:
+                        recording_url = current_recording_url
+                except Exception as e:
+                    print(f"获取录音URL失败 - call_task_id: {call_task_id}, 错误: {str(e)}")
+                    if current_recording_url:
+                        recording_url = current_recording_url
+            elif job_status == 'Succeeded' and call_task_id:
+                recording_url = current_recording_url
+
+            # 检查是否有变化（使用批量查询的结果）
+            try:
+                # 序列化conversation用于比较
+                new_conversation_str = json.dumps(conversation) if conversation else None
+
+                # 比较时间（允许秒级差异）
+                plan_time_match = False
+                if current_plan_time and plan_time:
+                    time_diff = abs((current_plan_time - plan_time).total_seconds())
+                    plan_time_match = time_diff < 1
+                elif not current_plan_time and not plan_time:
+                    plan_time_match = True
+
+                # 检查是否有变化
+                has_changes = (
+                    current_status != job_status or
+                    not plan_time_match or
+                    current_call_task_id != call_task_id or
+                    current_conversation != new_conversation_str or
+                    current_calling_number != calling_number or
+                    current_recording_url != recording_url
+                )
+
+                if not has_changes:
+                    if updated_count == 0 and error_count == 0:
+                        print(f"[query-task-execution] job_id={job_id} 数据无变化，跳过数据库更新（这是正常的性能优化）")
+                    continue
+
+                # 收集变更（是否执行更新由 apply_update 决定）
+                # 使用 call_job_id 而不是 job_id
+                update_params = (
+                    job_status,
+                    plan_time,
+                    call_task_id,
+                    json.dumps(conversation) if conversation else None,
+                    calling_number,
+                    recording_url,
+                    request.task_id,
+                    call_job_id
+                )
+                updates_batch.append(update_params)
+
+            except Exception as e:
+                error_count += 1
+                print(f"更新任务 {job_id} 失败: {str(e)}")
+
+    # 执行批量更新（如果 apply_update=True 且有变更）
+    if request.apply_update and updates_batch:
+        update_sql = """
+            UPDATE leads_task_list
+            SET call_status = %s,
+                planed_time = %s,
+                call_task_id = %s,
+                call_conversation = %s,
+                calling_number = %s,
+                recording_url = %s
+            WHERE task_id = %s AND call_job_id = %s
+        """
+        try:
+            # 批量执行更新
+            for update_params in updates_batch:
+                try:
+                    execute_update(update_sql, update_params)
+                    updated_count += 1
+                except Exception as e:
+                    error_count += 1
+                    print(f"[query-task-execution] 批量更新失败: {str(e)}, params={update_params[:2]}...")
+            
+            print(f"[query-task-execution] 批量更新完成: 成功 {updated_count} 条，失败 {error_count} 条")
+        except Exception as e:
+            print(f"[query-task-execution] 批量更新执行失败: {str(e)}")
+            error_count += len(updates_batch)
+
+    # 返回前将 is_interested 与 follow_data 注入到每条 job_data
+    for job_data in jobs_data:
+        job_id = job_data.get('JobId')
+        current_job_data = current_data_map.get(job_id, {})
+        is_interested = current_job_data.get('is_interested')
+        leads_follow_id = current_job_data.get('leads_follow_id')
+        follow_data = follow_data_map.get(leads_follow_id) if leads_follow_id else None
+        job_data['is_interested'] = is_interested
+        job_data['follow_data'] = follow_data
+
+    # 任务统计
+    stats_query = """
+        SELECT 
+            COUNT(*) as total,
+            SUM(CASE WHEN call_status = 'Succeeded' THEN 1 ELSE 0 END) as connected_calls,
+            SUM(CASE WHEN call_status != 'Succeeded' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as not_connected_calls
+        FROM leads_task_list 
+        WHERE task_id = %s AND call_job_id IS NOT NULL AND call_job_id != ''
+    """
+    stats_result = execute_query(stats_query, (request.task_id,))
+
+    is_completed = task_info['task_type'] >= 3
+    if job_group_status and job_group_status in ['Completed', 'Finished', 'Stopped']:
+        is_completed = True
+
+    task_stats = {
+        "total_calls": total_jobs,
+        "connected_calls": 0,
+        "not_connected_calls": 0,
+        "is_completed": is_completed
+    }
+
+    if stats_result and stats_result[0]:
+        task_stats["connected_calls"] = stats_result[0].get('connected_calls', 0) or 0
+        task_stats["not_connected_calls"] = stats_result[0].get('not_connected_calls', 0) or 0
+
+    return {
+        "status": "success",
+        "code": 200,
+        "message": "查询外呼任务执行情况成功",
+        "data": {
+            "task_id": request.task_id,
+            "task_name": task_info['task_name'],
+            "task_type": task_info['task_type'],
+            "total_jobs": total_jobs,
+            "updated_count": updated_count,
+            "error_count": error_count,
+            "query_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "jobs_data": jobs_data,
+            "task_stats": task_stats,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "total_count": total_jobs
+            }
+        }
+    }
 
 @auto_call_router.post("/query-task-execution", response_model=TaskExecutionResponse)
 async def query_task_execution(
@@ -1240,7 +895,7 @@ async def query_task_execution(
     查询外呼任务执行情况
     
     根据task_id查询外呼任务的执行情况，包括：
-    1. 在leads_task_list中找到对应task_id的call_job_id
+    1. 在leads_task_list中找到对应task_id的call_job_idh
     2. 调用list_jobs接口获取任务执行状态
     3. 解析返回数据并更新leads_task_list表
     
@@ -1295,590 +950,12 @@ async def query_task_execution(
             )
         
         task_info = task_result[0]
-        job_group_id = task_info.get('job_group_id')
-        # 手动调用：仅当任务为暂停(5)时跳过；其他状态(含4)允许执行获取
-        if task_info.get('task_type') == 5:
-            return {
-                "status": "success",
-                "code": 200,
-                "message": f"任务当前状态为 {task_info.get('task_type')}（暂停），不执行获取",
-                "data": {
-                    "task_id": request.task_id,
-                    "task_type": task_info.get('task_type'),
-                    "job_group_id": job_group_id,
-                    "skipped": True
-                }
-            }
         
-        # 如果有 job_group_id，先调用 describe-job-group 检查任务组状态
-        job_group_status = None
-        if job_group_id:
-            try:
-                import sys
-                import os
-                sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'openAPI'))
-                from describe_job_group import Sample as DescribeJobGroupSample
-                
-                job_group_data = await DescribeJobGroupSample.main_async(
-                    [],
-                    job_group_id
-                )
-                
-                if job_group_data:
-                    # 获取任务组状态
-                    def get_attr_value(obj, *attr_names, default=None):
-                        """尝试多个属性名获取值"""
-                        for attr_name in attr_names:
-                            if hasattr(obj, attr_name):
-                                value = getattr(obj, attr_name, default)
-                                if value is not None:
-                                    return value
-                        return default
-                    
-                    job_group_status = get_attr_value(job_group_data, 'Status', 'status', default='')
-                    progress = get_attr_value(job_group_data, 'Progress', 'progress', default=None)
-                    
-                    # 根据进度信息判断任务是否真的完成
-                    # 只有当所有任务都已完成（total_completed >= total_jobs）时，才更新为已完成
-                    is_really_completed = False
-                    if progress:
-                        total_jobs = get_attr_value(progress, 'TotalJobs', 'total_jobs', default=0) or 0
-                        total_completed = get_attr_value(progress, 'TotalCompleted', 'total_completed', default=0) or 0
-                        executing = get_attr_value(progress, 'Executing', 'executing', default=0) or 0
-                        scheduling = get_attr_value(progress, 'Scheduling', 'scheduling', default=0) or 0
-                        
-                        # 只有当所有任务都完成（没有执行中和调度中的任务）时，才认为真的完成
-                        if total_jobs > 0 and total_completed >= total_jobs and executing == 0 and scheduling == 0:
-                            is_really_completed = True
-                            print(f"任务 {request.task_id} 进度检查：total_jobs={total_jobs}, total_completed={total_completed}, executing={executing}, scheduling={scheduling} -> 已完成")
-                        else:
-                            print(f"任务 {request.task_id} 进度检查：total_jobs={total_jobs}, total_completed={total_completed}, executing={executing}, scheduling={scheduling} -> 未完成")
-                    
-                    # 如果任务组状态为 Completed/Finished/Stopped 且进度显示真的完成，且当前任务状态不是已完成，更新任务状态
-                    if job_group_status in ['Completed', 'Finished', 'Stopped'] and is_really_completed and task_info['task_type'] < 3:
-                        # 更新任务状态为外呼完成（task_type=3）
-                        update_task_type_query = """
-                            UPDATE call_tasks 
-                            SET task_type = 3 
-                            WHERE id = %s
-                        """
-                        execute_update(update_task_type_query, (request.task_id,))
-                        task_info['task_type'] = 3
-                        print(f"任务 {request.task_id} 根据任务组状态和进度信息更新为已完成（task_type=3）")
-                    elif job_group_status in ['Completed', 'Finished', 'Stopped'] and not is_really_completed and task_info['task_type'] == 3:
-                        # 如果状态是已完成但进度显示未完成，回退状态
-                        update_task_type_query = """
-                            UPDATE call_tasks 
-                            SET task_type = 2 
-                            WHERE id = %s
-                        """
-                        execute_update(update_task_type_query, (request.task_id,))
-                        task_info['task_type'] = 2
-                        print(f"任务 {request.task_id} 状态回退：任务组状态为 {job_group_status} 但进度显示未完成，回退为 task_type=2")
-            except Exception as e:
-                # 如果调用失败，不影响主流程，只记录日志
-                print(f"调用 describe-job-group 检查任务组状态失败: {str(e)}")
-                pass
-        
-        # 1. 优化：在数据库层面分页查询 call_job_id，而不是查询所有记录后再分页
-        # 先查询总数
-        # 如果 only_followed 为 True，只查询已跟进的记录（leads_follow_id IS NOT NULL）
-        count_condition = "task_id = %s AND call_job_id IS NOT NULL AND call_job_id != ''"
-        count_params = [request.task_id]
-
-        if request.only_followed:
-            count_condition += " AND leads_follow_id IS NOT NULL"
-
-        # 按意向筛选
-        if request.interest is not None and request.interest in (0, 1, 2):
-            count_condition += " AND is_interested = %s"
-            count_params.append(request.interest)
-        
-        count_query = f"""
-            SELECT COUNT(*) as total
-            FROM leads_task_list 
-            WHERE {count_condition}
-        """
-        count_result = execute_query(count_query, tuple(count_params))
-        total_jobs = count_result[0]['total'] if count_result and count_result[0].get('total') else 0
-        
-        if total_jobs == 0:
-            error_message = "任务下没有已分配的外呼任务" if not request.only_followed else "任务下没有已跟进的记录"
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4008,
-                    "message": error_message
-                }
-            )
-        
-        # 计算分页信息
-        page_size = max(1, request.page_size)  # 确保每页数量至少为1
-        total_pages = (total_jobs + page_size - 1) // page_size  # 向上取整
-        page = max(1, min(request.page, total_pages))  # 确保页码在有效范围内
-        
-        # 在数据库层面分页查询当前页的 call_job_id
-        offset = (page - 1) * page_size
-        leads_query_params = count_params + [page_size, offset]
-        leads_query = f"""
-            SELECT call_job_id
-            FROM leads_task_list 
-            WHERE {count_condition}
-            ORDER BY id
-            LIMIT %s OFFSET %s
-        """
-        
-        leads_result = execute_query(leads_query, tuple(leads_query_params))
-        
-        if not leads_result:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4009,
-                    "message": "没有有效的call_job_id"
-                }
-            )
-        
-        # 提取当前页的call_job_id
-        paginated_call_job_ids = [lead['call_job_id'] for lead in leads_result if lead.get('call_job_id')]
-        
-        if not paginated_call_job_ids:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4009,
-                    "message": "没有有效的call_job_id"
-                }
-            )
-        
-        # 2. 调用list_jobs接口获取任务执行状态（只查询当前页的数据）
-        
-        import sys
-        import os
-        sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'openAPI'))
-        from list_jobs import Sample as ListJobsSample
-        from download_recording import Sample as DownloadRecordingSample
-        
-        try:
-            # 调试日志：记录调用阿里云接口
-            print(f"[query-task-execution] 准备调用阿里云接口，task_id={request.task_id}, page={page}, job_ids数量={len(paginated_call_job_ids)}")
-            print(f"[query-task-execution] job_ids示例: {paginated_call_job_ids[:3]}...")  # 只打印前3个
-            
-            jobs_data = ListJobsSample.main(
-                [],
-                job_ids=paginated_call_job_ids
-            )
-            
-            # 调试日志：记录阿里云接口返回结果
-            print(f"[query-task-execution] 阿里云接口调用成功，返回数据数量: {len(jobs_data) if jobs_data else 0}")
-            
-        except Exception as e:
-            # 调试日志：记录调用失败
-            print(f"[query-task-execution] 阿里云接口调用失败: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "status": "error",
-                    "code": 5003,
-                    "message": f"获取外呼任务状态失败: {str(e)}"
-                }
-            )
-        
-        # 3. 解析返回数据并更新leads_task_list表（聚合变更，批量更新）
-        updated_count = 0
-        error_count = 0
-        
-        # 如果没有获取到job数据，直接返回空结果（total_jobs已在前面计算）
-        if not jobs_data:
-            
-            return {
-                "status": "success",
-                "code": 200,
-                "message": "未获取到外呼任务数据",
-                "data": {
-                    "task_id": request.task_id,
-                    "task_name": task_info['task_name'],
-                    "task_type": task_info['task_type'],
-                    "total_jobs": total_jobs,
-                    "updated_count": 0,
-                    "error_count": 0,
-                    "query_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "jobs_data": [],
-                    "pagination": {
-                        "page": page,
-                        "page_size": page_size,
-                        "total_pages": total_pages,
-                        "total_count": total_jobs
-                    }
-                }
-            }
-        
-        # 优化：批量查询所有job的当前状态，避免N+1查询问题
-        job_ids = [job.get('JobId') for job in jobs_data if job.get('JobId')]
-        
-        # 批量查询所有job的当前数据状态
-        current_data_map = {}
-        follow_data_map = {}
-        
-        if job_ids:
-            # 一次性查询所有job的当前状态
-            placeholders = ','.join(['%s'] * len(job_ids))
-            batch_query = f"""
-                SELECT call_job_id, call_status, planed_time, call_task_id, 
-                       call_conversation, calling_number, recording_url,
-                       is_interested, leads_follow_id
-                FROM leads_task_list 
-                WHERE task_id = %s AND call_job_id IN ({placeholders})
-            """
-            batch_result = execute_query(batch_query, (request.task_id, *job_ids))
-            
-            # 构建字典，O(1) 查找
-            current_data_map = {row['call_job_id']: row for row in batch_result} if batch_result else {}
-            
-            # 批量查询跟进数据
-            follow_ids = [row['leads_follow_id'] for row in batch_result if row.get('leads_follow_id')]
-            if follow_ids:
-                follow_placeholders = ','.join(['%s'] * len(follow_ids))
-                follow_batch_query = f"""
-                    SELECT id, leads_id, follow_time, leads_remark, 
-                           frist_follow_time, new_follow_time, next_follow_time,
-                           is_arrive, frist_arrive_time
-                    FROM dcc_leads_follow 
-                    WHERE id IN ({follow_placeholders})
-                """
-                follow_batch_result = execute_query(follow_batch_query, follow_ids)
-                follow_data_map = {row['id']: row for row in follow_batch_result} if follow_batch_result else {}
-        
-        # 用于检查所有任务是否都完成
-        all_tasks_succeeded = True
-        task_statuses = []
-        
-        updates_batch: list[tuple] = []
-        for job_data in jobs_data:
-            job_id = job_data.get('JobId')
-            tasks = job_data.get('Tasks', [])
-             # 记录任务状态用于后续检查
-            task_statuses.append(job_data.get('Status', ''))
-            job_status = job_data.get('Status', '')
-            
-            if tasks:
-                # 获取最后一个任务的信息
-                last_task = tasks[-1]
-
-                # 解析任务数据
-                status = last_task.get('Status', '')
-                planned_time = last_task.get('PlanedTime', None)
-                call_task_id = last_task.get('TaskId', '')
-                conversation = last_task.get('Conversation', '')
-                actual_time = last_task.get('ActualTime', None)
-                calling_number = last_task.get('CallingNumber', '')
-                
-                
-                # 转换时间戳
-                plan_time = None
-                call_time = None
-                
-                if planned_time:
-                    try:
-                        plan_time = datetime.fromtimestamp(int(planned_time) / 1000)
-                    except:
-                        plan_time = None
-                
-                if actual_time:
-                    try:
-                        call_time = datetime.fromtimestamp(int(actual_time) / 1000)
-                    except:
-                        call_time = None
-                
-                # 优化：从批量查询的结果中获取当前数据，而不是单独查询
-                current_data = current_data_map.get(job_id, {})
-                current_status = current_data.get('call_status')
-                current_plan_time = current_data.get('planed_time')
-                current_call_task_id = current_data.get('call_task_id')
-                current_conversation = current_data.get('call_conversation')
-                current_calling_number = current_data.get('calling_number')
-                current_recording_url = current_data.get('recording_url')
-                
-                # 获取录音URL - 如果skip_recording为True，跳过耗时操作
-                recording_url = None
-                if not request.skip_recording and job_status == 'Succeeded' and call_task_id:
-                    # 使用批量查询的结果
-                    current_recording_url = current_recording_url
-                    
-                    # 获取新的录音URL（这是最耗时的操作）
-                    try:
-                        new_recording_url = DownloadRecordingSample.main([], task_id=call_task_id)
-                        if new_recording_url:
-                            recording_url = new_recording_url
-                        elif current_recording_url:
-                            recording_url = current_recording_url
-                    except Exception as e:
-                        print(f"获取录音URL失败 - call_task_id: {call_task_id}, 错误: {str(e)}")
-                        if current_recording_url:
-                            recording_url = current_recording_url
-                elif job_status == 'Succeeded' and call_task_id:
-                    # 如果跳过录音获取，但已有录音URL，使用批量查询的结果
-                    recording_url = current_recording_url
-                
-                # 检查是否有变化（使用批量查询的结果）
-                try:
-                    # 序列化conversation用于比较
-                    new_conversation_str = json.dumps(conversation) if conversation else None
-                    
-                    # 比较时间（允许秒级差异）
-                    plan_time_match = False
-                    if current_plan_time and plan_time:
-                        # 比较时间戳，允许1秒差异
-                        time_diff = abs((current_plan_time - plan_time).total_seconds())
-                        plan_time_match = time_diff < 1
-                    elif not current_plan_time and not plan_time:
-                        plan_time_match = True
-                    
-                    # 检查是否有变化
-                    has_changes = (
-                        current_status != job_status or
-                        not plan_time_match or
-                        current_call_task_id != call_task_id or
-                        current_conversation != new_conversation_str or
-                        current_calling_number != calling_number or
-                        current_recording_url != recording_url
-                    )
-                    
-                    # 如果没有变化，跳过更新
-                    if not has_changes:
-                        # 调试日志：记录跳过更新的情况
-                        if updated_count == 0 and error_count == 0:
-                            # 只在第一个job时打印，避免日志过多
-                            print(f"[query-task-execution] job_id={job_id} 数据无变化，跳过数据库更新（这是正常的性能优化）")
-                        continue  # 跳过这个任务，不执行更新
-                    
-                    # 有变化或数据不存在，执行更新
-                    update_query = """
-                        UPDATE leads_task_list 
-                        SET call_status = %s,
-                            planed_time = %s,
-                            call_task_id = %s,
-                            call_conversation = %s,
-                            calling_number = %s,
-                            recording_url = %s
-                        WHERE task_id = %s AND call_job_id = %s
-                    """
-                    
-                    # 使用job_status而不是status，确保Failed状态能正确更新到数据库
-                    update_params = (
-                        job_status,
-                        plan_time,
-                        call_task_id,
-                        json.dumps(conversation) if conversation else None,
-                        calling_number,
-                        recording_url,
-                        request.task_id,
-                        job_id
-                    )
-                    
-                    # 收集变更，稍后批量更新
-                    updates_batch.append(update_params)
-                    
-                    # 延后统计，由批量更新结果统一计算
-
-                    # 仅首次需要时触发AI：需满足有会话 且 is_interested 为 NULL 且 leads_follow_id 为 NULL
-                    # 优化：使用批量查询的结果，而不是再次查询数据库
-                    if conversation:
-                        try:
-                            current_is_interested = current_data.get('is_interested')
-                            current_leads_follow_id = current_data.get('leads_follow_id')
-                            needs_ai = (
-                                current_is_interested is None and
-                                current_leads_follow_id is None
-                            )
-                            if needs_ai:
-                                def run_ai_follow():
-                                    try:
-                                        print(f"[bg-ai] start job_id={job_id}")
-                                        get_leads_follow_id(job_id)
-                                        print(f"[bg-ai] done job_id={job_id}")
-                                    except Exception as e:
-                                        print(f"[bg-ai] failed job_id={job_id}, err={str(e)}")
-                                ai_thread = threading.Thread(target=run_ai_follow)
-                                ai_thread.daemon = True
-                                ai_thread.start()
-                        except Exception:
-                            pass
-                            
-                except Exception as e:
-                    error_count += 1
-                    print(f"更新任务 {job_id} 失败: {str(e)}")
-            
-            if job_status in ['Succeeded', 'Failed']:
-                # 优化：使用批量查询的结果，而不是再次查询数据库
-                current_job_data = current_data_map.get(job_id, {})
-                current_leads_follow_id = current_job_data.get('leads_follow_id')
-                
-                if current_leads_follow_id is None:
-                    # leads_follow_id为空，才创建跟进记录
-                    def run_get_leads_follow():
-                        try:
-                            print(f"子线程开始处理任务 {job_id} 的跟进记录")
-                            get_leads_follow_id(job_id)
-                            print(f"子线程完成：任务 {job_id} 的跟进记录创建成功")
-                        except Exception as e:
-                            print(f"子线程异常：任务 {job_id} 的跟进记录创建失败: {str(e)}")
-                    
-                    # 启动子线程
-                    follow_thread = threading.Thread(target=run_get_leads_follow)
-                    follow_thread.daemon = True  # 设置为守护线程，主线程结束时自动结束
-                    follow_thread.start()
-                    print(f"主线程已启动子线程处理任务 {job_id}，继续执行主流程")
-                else:
-                    print(f"任务 {job_id} 的leads_follow_id已存在，跳过跟进记录创建")
-        
-        # 执行批量更新（如果有需要更新的记录） - 使用 PostgreSQL UPDATE FROM VALUES 语法
-        if updates_batch:
-            try:
-                values_placeholder = ",".join(["(%s,%s,%s,%s,%s,%s,%s,%s)"] * len(updates_batch))
-                batch_sql = f"""
-                    UPDATE leads_task_list AS l
-                    SET 
-                        call_status = d.call_status,
-                        planed_time = d.planed_time,
-                        call_task_id = d.call_task_id,
-                        call_conversation = d.call_conversation,
-                        calling_number = d.calling_number,
-                        recording_url = d.recording_url
-                    FROM (
-                        VALUES {values_placeholder}
-                    ) AS d(
-                        call_status, planed_time, call_task_id, call_conversation, calling_number, recording_url, task_id, call_job_id
-                    )
-                    WHERE l.task_id = d.task_id AND l.call_job_id = d.call_job_id
-                """
-                flat_params: list = []
-                for row in updates_batch:
-                    flat_params.extend(list(row))
-                affected_rows = execute_update(batch_sql, tuple(flat_params))
-                updated_count = affected_rows or 0
-                print(f"[query-task-execution] 批量更新完成，影响行数: {updated_count}")
-            except Exception as e:
-                print(f"[query-task-execution] 批量更新失败，回退为逐条：{str(e)}")
-                # 回退为逐条，确保不丢数据
-                for params in updates_batch:
-                    try:
-                        execute_update(update_query, params)
-                        updated_count += 1
-                    except Exception as ie:
-                        error_count += 1
-                        print(f"[query-task-execution] 回退单条更新失败: {str(ie)}")
-
-        # 检查所有任务是否都完成
-        if task_statuses and all(status in ['Succeeded', 'Failed'] for status in task_statuses):
-            # 检查该任务下是否所有线索的leads_follow_id都不为空
-            check_follow_query = """
-                SELECT COUNT(*) as total_count,
-                       SUM(CASE WHEN leads_follow_id IS NULL THEN 1 ELSE 0 END) as empty_count
-                FROM leads_task_list 
-                WHERE task_id = %s
-            """
-            follow_result = execute_query(check_follow_query, (request.task_id,))
-            
-            if follow_result:
-                total_count = follow_result[0]['total_count']
-                empty_count = follow_result[0]['empty_count']
-                
-                if empty_count == 0:
-                    # 所有线索的跟进记录都已创建，更新为状态4（跟进完成）
-                    try:
-                        update_task_type_query = """
-                            UPDATE call_tasks 
-                            SET task_type = 4 
-                            WHERE id = %s
-                        """
-                        execute_update(update_task_type_query, (request.task_id,))
-                        print(f"任务 {request.task_id} 所有线索跟进完成，已更新task_type为4")
-                    except Exception as e:
-                        print(f"更新任务类型失败: {str(e)}")
-                else:
-                    # 还有线索的跟进记录未创建，更新为状态3（外呼完成）
-                    try:
-                        update_task_type_query = """
-                            UPDATE call_tasks 
-                            SET task_type = 3 
-                            WHERE id = %s
-                        """
-                        execute_update(update_task_type_query, (request.task_id,))
-                        print(f"任务 {request.task_id} 所有外呼任务已完成，已更新task_type为3（还有{empty_count}个线索待跟进）")
-                    except Exception as e:
-                        print(f"更新任务类型失败: {str(e)}")
-        
-        # 优化：在返回数据之前，为每个job_data添加is_interested和follow_data
-        # 使用批量查询的结果，而不是循环中逐个查询
-        for job_data in jobs_data:
-            job_id = job_data.get('JobId')
-            
-            # 从批量查询的结果中获取is_interested和follow_data
-            current_job_data = current_data_map.get(job_id, {})
-            is_interested = current_job_data.get('is_interested')
-            leads_follow_id = current_job_data.get('leads_follow_id')
-            
-            # 从批量查询的跟进数据字典中获取follow_data
-            follow_data = follow_data_map.get(leads_follow_id) if leads_follow_id else None
-            
-            # 将is_interested和follow_data添加到job_data中
-            job_data['is_interested'] = is_interested
-            job_data['follow_data'] = follow_data
-        
-        # 查询整个任务的统计信息（已接通、未接通等）
-        stats_query = """
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN call_status = 'Succeeded' THEN 1 ELSE 0 END) as connected_calls,
-                SUM(CASE WHEN call_status != 'Succeeded' AND call_status IS NOT NULL AND call_status != '' THEN 1 ELSE 0 END) as not_connected_calls
-            FROM leads_task_list 
-            WHERE task_id = %s AND call_job_id IS NOT NULL AND call_job_id != ''
-        """
-        stats_result = execute_query(stats_query, (request.task_id,))
-        
-        # 根据任务组状态和任务类型判断是否已完成
-        # 如果任务组状态为 Completed/Finished/Stopped，或 task_type >= 3，则认为已完成
-        is_completed = task_info['task_type'] >= 3
-        if job_group_status and job_group_status in ['Completed', 'Finished', 'Stopped']:
-            is_completed = True
-        
-        task_stats = {
-            "total_calls": total_jobs,
-            "connected_calls": 0,
-            "not_connected_calls": 0,
-            "is_completed": is_completed
-        }
-        
-        if stats_result and stats_result[0]:
-            task_stats["connected_calls"] = stats_result[0].get('connected_calls', 0) or 0
-            task_stats["not_connected_calls"] = stats_result[0].get('not_connected_calls', 0) or 0
-        
-        return {
-            "status": "success",
-            "code": 200,
-            "message": "查询外呼任务执行情况成功",
-            "data": {
-                "task_id": request.task_id,
-                "task_name": task_info['task_name'],
-                "task_type": task_info['task_type'],
-                "total_jobs": total_jobs,  # 总任务数
-                "updated_count": updated_count,
-                "error_count": error_count,
-                "query_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "jobs_data": jobs_data,
-                "task_stats": task_stats,  # 任务统计信息
-                "pagination": {
-                    "page": page,
-                    "page_size": page_size,
-                    "total_pages": total_pages,
-                    "total_count": total_jobs
-                }
-            }
-        }
+        from .auto_call_service import query_task_execution_core_service
+        return query_task_execution_core_service(
+            request=request,
+            task_info=task_info
+        )
         
     except HTTPException:
         raise
@@ -2095,46 +1172,15 @@ async def start_query_execution_run(
     request: StartExecutionRunRequest,
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
-    """创建一个后台运行并立即返回 run_id。"""
-    # 鉴权+任务归属校验
-    user_id = token.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=400, detail={"status":"error","code":1003,"message":"令牌中缺少用户ID信息"})
-
-    task = execute_query("SELECT id FROM call_tasks WHERE id=%s", (request.task_id,))
-    if not task:
-        raise HTTPException(status_code=404, detail={"status":"error","code":4004,"message":"任务不存在"})
-
-    _ensure_execution_runs_table()
-
-    # 创建 run 记录
-    params = {
-        "batch_size": request.batch_size,
-        "sleep_ms": request.sleep_ms,
-        "skip_recording": request.skip_recording,
-    }
-    run_id = execute_update(
-        """
-        INSERT INTO call_task_execution_runs(task_id, params, status, total_jobs, processed_jobs, error, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (request.task_id, json.dumps(params), "pending", 0, 0, None, datetime.now(), datetime.now())
+    """后台执行运行功能已禁用 - 仅保留查询数据库能力"""
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "status": "error",
+            "code": 4003,
+            "message": "后台执行运行功能已禁用，仅支持查询数据库"
+        }
     )
-
-    # 启动后台线程
-    def _runner():
-        _background_execute_run(run_id, request.task_id, request.batch_size, request.sleep_ms, request.skip_recording)
-
-    t = threading.Thread(target=_runner)
-    t.daemon = True
-    t.start()
-
-    return {
-        "status": "success",
-        "code": 200,
-        "message": "运行已启动",
-        "data": {"run_id": run_id}
-    }
 
 
 @auto_call_router.get("/get-query-execution-run", response_model=GetExecutionRunResponse)
@@ -2196,6 +1242,25 @@ def get_leads_follow_id(call_job_id, *, force: bool = False, dry_run: bool = Fal
         except Exception:
             pass
         
+        # 必须获取到 call_status 之后，才进行创建跟进记录
+        if not call_status or call_status == '':
+            logging.info(f"[get_leads_follow_id] call_job_id={call_job_id} 没有 call_status，跳过跟进记录创建")
+            return {
+                "status": "error",
+                "code": 4004,
+                "message": f"call_job_id为{call_job_id}的记录尚未获取到call_status，暂不创建跟进记录",
+                "data": {
+                    "follow_id": None,
+                    "leads_id": leads_id,
+                    "leads_name": leads_name,
+                    "leads_phone": leads_phone,
+                    "leads_remark": None,
+                    "is_interested": None,
+                    "next_follow_time": None,
+                    "create_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+            }
+        
         # 不再直接返回：若已有跟进但存在会话，将允许走AI并更新原有跟进
         
         # 检查任务状态，如果 Status = Failed，使用固定跟进内容
@@ -2253,20 +1318,37 @@ def get_leads_follow_id(call_job_id, *, force: bool = False, dry_run: bool = Fal
                 next_follow_time = datetime.now()
                 is_interested = 0
         else:
-            # 无会话：若失败则固定备注，否则返回缺少会话
+            # 无会话：如果 call_status = Failed 或为空（未匹配到），则创建跟进记录
             if call_status == 'Failed':
-                leads_remark = "客户未接电话，未打通；"
+                leads_remark = "呼叫失败；"
+                is_interested = 0  # 0=无法判断
                 next_follow_time = None
-                is_interested = 0
+            elif not call_status or call_status == '':
+                # call_status 为空，说明 call_job_id 在请求中没有匹配到，创建"未执行外呼"的跟进记录
+                leads_remark = "未执行外呼；"
+                is_interested = 0  # 0=无法判断
+                next_follow_time = None
+            else:
+                # 其他状态且无会话：不创建/更新跟进记录，直接返回提示
                 try:
-                    print(f"[get_leads_follow_id] 无会话但通话失败：call_job_id={call_job_id}")
+                    print(f"[get_leads_follow_id] 无会话内容且状态不是Failed或空，跳过AI与跟进创建，call_job_id={call_job_id}, call_status={call_status}")
                 except Exception:
                     pass
-            else:
-                # 无会话且非 Failed：改为创建"待人工"跟进，避免流程卡住
-                leads_remark = "缺少通话记录，待人工判定；"
-                next_follow_time = None
-                is_interested = 0
+                return {
+                    "status": "success",
+                    "code": 200,
+                    "message": "暂无通话内容，未创建跟进记录",
+                    "data": {
+                        "follow_id": None,
+                        "leads_id": leads_id,
+                        "leads_name": leads_name,
+                        "leads_phone": leads_phone,
+                        "leads_remark": None,
+                        "is_interested": None,
+                        "next_follow_time": None,
+                        "create_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                }
         
         # 3. dry_run 时仅返回不入库；否则按原逻辑入库
         current_time = datetime.now()
@@ -2518,105 +1600,22 @@ async def get_task_statistics(
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    根据task_id查询任务统计信息
-    
-    返回该任务的：
-    - 线索数量：该任务线索数量
-    - 待跟进数量：leads_task_list中该任务is_interested为空的数据
-    - 无法判断数量：leads_task_list中该任务is_interested=0的数量
-    - 有意向数量：leads_task_list中该任务is_interested=1的数量
-    - 无意向数量：leads_task_list中该任务is_interested=2的数量
-    
-    需要在请求头中提供access-token进行身份验证
+    根据task_id查询任务统计信息（精简版）：控制器仅做基本校验与调用服务。
     """
     try:
-        # 获取用户信息
-        user_id = token.get("user_id")
-        if not user_id:
+        if not token or not token.get("user_id"):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
+                detail={"status": "error", "code": 1003, "message": "令牌中缺少用户ID信息"}
             )
-        
-        # 获取用户组织ID
-        org_query = "SELECT dcc_user_org_id FROM users WHERE id = %s"
-        org_result = execute_query(org_query, (user_id,))
-        
-        if not org_result or not org_result[0].get('dcc_user_org_id'):
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "用户未绑定组织或组织ID无效"
-                }
-            )
-        
-        organization_id = org_result[0]['dcc_user_org_id']
-        
-        # 验证任务是否存在且属于该组织
-        task_query = """
-            SELECT id, task_name, leads_count 
-            FROM call_tasks 
-            WHERE id = %s AND organization_id = %s
-        """
-        task_result = execute_query(task_query, (request.task_id, organization_id))
-        
-        if not task_result:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "status": "error",
-                    "code": 4004,
-                    "message": "任务不存在或无权限访问"
-                }
-            )
-        
-        task_info = task_result[0]
-        
-        # 查询任务统计信息
-        stats_query = """
-            SELECT 
-                COUNT(*) as total_leads,
-                SUM(CASE WHEN is_interested IS NULL THEN 1 ELSE 0 END) as pending_follow,
-                SUM(CASE WHEN is_interested = 0 THEN 1 ELSE 0 END) as unable_to_judge,
-                SUM(CASE WHEN is_interested = 1 THEN 1 ELSE 0 END) as interested,
-                SUM(CASE WHEN is_interested = 2 THEN 1 ELSE 0 END) as not_interested
-            FROM leads_task_list 
-            WHERE task_id = %s
-        """
-        
-        stats_result = execute_query(stats_query, (request.task_id,))
-        
-        if not stats_result:
-            # 如果没有找到相关记录，返回默认值
-            stats_data = {
-                "total_leads": 0,
-                "pending_follow": 0,
-                "unable_to_judge": 0,
-                "interested": 0,
-                "not_interested": 0
-            }
-        else:
-            stats_data = stats_result[0]
-        
-        return {
-            "status": "success",
-            "code": 200,
-            "message": "查询任务统计信息成功",
-            "data": {
-                "total_leads": stats_data["total_leads"],
-                "pending_follow": stats_data["pending_follow"],
-                "unable_to_judge": stats_data["unable_to_judge"],
-                "interested": stats_data["interested"],
-                "not_interested": stats_data["not_interested"]
-            }
-        }
-        
+
+        from .auto_call_service import get_task_statistics_service
+        result = get_task_statistics_service(request=request, token=token)
+
+        if result.get("status") != "success":
+            status_code = 404 if result.get("code") == 4004 else 400
+            raise HTTPException(status_code=status_code, detail=result)
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -2630,138 +1629,7 @@ async def get_task_statistics(
         )
 
 
-# 自动化任务相关功能
-# 使用 auto_task_monitor.py 中的监控器，不再重复定义
-
-class AutoTaskRequest(BaseModel):
-    """自动化任务请求"""
-    action: str  # start, stop, check
-
-class AutoTaskResponse(BaseModel):
-    """自动化任务响应"""
-    status: str
-    code: int
-    message: str
-    data: Dict[str, Any]
-
-@auto_call_router.post("/auto-task", response_model=AutoTaskResponse)
-async def control_auto_task(
-    request: AutoTaskRequest,
-    token: Dict[str, Any] = Depends(verify_access_token)
-):
-    """
-    控制自动化任务
-    
-    支持的操作：
-    - start: 启动自动化任务监控
-    - stop: 停止自动化任务监控
-    - check: 立即执行一次任务检查
-    
-    需要在请求头中提供access-token进行身份验证
-    """
-    try:
-        # 获取用户信息
-        user_id = token.get("user_id")
-        if not user_id:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
-            )
-        
-        if request.action == "start":
-            # 启动监控
-            if not auto_task_monitor.is_running:
-                asyncio.create_task(auto_task_monitor.start_monitoring())
-                message = "自动化任务监控已启动"
-            else:
-                message = "自动化任务监控已在运行中"
-            
-            return {
-                "status": "success",
-                "code": 200,
-                "message": message,
-                "data": {
-                    "is_running": auto_task_monitor.is_running,
-                    "action": request.action
-                }
-            }
-            
-        elif request.action == "stop":
-            # 停止监控
-            await auto_task_monitor.stop_monitoring()
-            return {
-                "status": "success",
-                "code": 200,
-                "message": "自动化任务监控已停止",
-                "data": {
-                    "is_running": auto_task_monitor.is_running,
-                    "action": request.action
-                }
-            }
-            
-        elif request.action == "check":
-            # 立即执行一次检查
-            await auto_task_monitor.check_and_update_tasks()
-            return {
-                "status": "success",
-                "code": 200,
-                "message": "任务检查已完成",
-                "data": {
-                    "is_running": auto_task_monitor.is_running,
-                    "action": request.action
-                }
-            }
-        elif request.action == "light-check":
-            # 立即触发一次轻量后台扫描（拉取录音、触发AI跟进）
-            try:
-                await auto_task_monitor._lightweight_background_loop()
-            except Exception:
-                pass
-            return {
-                "status": "success",
-                "code": 200,
-                "message": "轻量后台扫描已触发一次",
-                "data": {
-                    "is_running": auto_task_monitor.is_running,
-                    "action": request.action
-                }
-            }
-            
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4001,
-                    "message": "不支持的操作类型"
-                }
-            )
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "status": "error",
-                "code": 5000,
-                "message": f"控制自动化任务失败: {str(e)}"
-            }
-        )
-
-# 修改创建任务函数，在创建成功后自动启动检查
-async def start_auto_check_after_creation(task_id: int):
-    """在创建任务后启动自动检查"""
-    try:
-        # 等待2秒后开始检查
-        await asyncio.sleep(2)
-        await auto_task_monitor.update_task_execution(task_id)
-    except Exception as e:
-        print(f"创建任务后自动检查失败: {str(e)}")
+# sync_call_job_ids_from_group 已移至 auto_call_service.py
 
 
 class SuspendResumeTaskRequest(BaseModel):
@@ -2784,160 +1652,22 @@ async def suspend_resume_task(
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    暂停/重启任务
-    
-    暂停任务：检测该task_id对应的task_type是否等于2，等于2才可以进行暂停，暂停后，将状态修改为task_type=5
-    重启任务：检测该task_id对应的task_type是否等于5，等于5才可以进行重启，重启后，task_type=2
-    
-    需要在请求头中提供access-token进行身份验证
+    暂停/重启任务（精简版）：控制器仅做基本校验与调用服务。
     """
     try:
-        # 获取用户信息
-        user_id = token.get("user_id")
-        if not user_id:
+        if not token or not token.get("user_id"):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
+                detail={"status": "error", "code": 1003, "message": "令牌中缺少用户ID信息"}
             )
-        
-        # 验证action参数
-        if request.action not in ["suspend", "resume"]:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4001,
-                    "message": "无效的操作类型"
-                }
-            )
-        
-        # 验证task_id参数
-        if not request.task_id or request.task_id <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4005,
-                    "message": "参数错误"
-                }
-            )
-        
-        # 查询任务信息
-        task_query = """
-            SELECT id, task_name, task_type, job_group_id 
-            FROM call_tasks 
-            WHERE id = %s
-        """
-        task_result = execute_query(task_query, (request.task_id,))
-        
-        if not task_result:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "status": "error",
-                    "code": 4004,
-                    "message": "未找到对应的任务"
-                }
-            )
-        
-        task_info = task_result[0]
-        current_task_type = task_info['task_type']
-        job_group_id = task_info['job_group_id']
-        
-        print(f"执行任务操作: {request.action}, task_id: {request.task_id}, job_group_id: {job_group_id}, 当前task_type: {current_task_type}")
-        
-        if request.action == "suspend":
-            # 暂停任务
-            if current_task_type != 2:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "status": "error",
-                        "code": 4002,
-                        "message": "任务状态不允许暂停"
-                    }
-                )
-            
-            # 调用阿里云API暂停任务
-            suspend_result = SuspendJobsSample.suspend_jobs(job_group_id)
-            
-            # 检查阿里云API响应
-            if not suspend_result.get("Success", False):
-                error_message = suspend_result.get('Message', '未知错误')
-                raise HTTPException(
-                    status_code=suspend_result.get("HttpStatusCode", 500),
-                    detail={
-                        "status": "error",
-                        "code": 5001,
-                        "message": f"暂停任务失败: {error_message}"
-                    }
-                )
-            
-            # 更新数据库状态
-            update_query = "UPDATE call_tasks SET task_type = 5 WHERE id = %s"
-            execute_update(update_query, (request.task_id,))
-            
-            print(f"任务暂停成功: task_id={request.task_id}, job_group_id={job_group_id}, task_type: {current_task_type} -> 5")
-            
-            return {
-                "status": "success",
-                "code": 200,
-                "message": "任务暂停成功",
-                "data": {
-                    "task_id": request.task_id,
-                    "job_group_id": job_group_id,
-                    "task_type": 5
-                }
-            }
-            
-        elif request.action == "resume":
-            # 重启任务
-            if current_task_type != 5:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "status": "error",
-                        "code": 4003,
-                        "message": "任务状态不允许重启"
-                    }
-                )
-            
-            # 调用阿里云API重启任务
-            resume_result = ResumeJobsSample.resume_jobs(job_group_id)
-            
-            # 检查阿里云API响应
-            if not resume_result.get("Success", False):
-                error_message = resume_result.get('Message', '未知错误')
-                raise HTTPException(
-                    status_code=resume_result.get("HttpStatusCode", 500),
-                    detail={
-                        "status": "error",
-                        "code": 5002,
-                        "message": f"重启任务失败: {error_message}"
-                    }
-                )
-            
-            # 更新数据库状态
-            update_query = "UPDATE call_tasks SET task_type = 2 WHERE id = %s"
-            execute_update(update_query, (request.task_id,))
-            
-            print(f"任务重启成功: task_id={request.task_id}, job_group_id={job_group_id}, task_type: {current_task_type} -> 2")
-            
-            return {
-                "status": "success",
-                "code": 200,
-                "message": "任务重启成功",
-                "data": {
-                    "task_id": request.task_id,
-                    "job_group_id": job_group_id,
-                    "task_type": 2
-                }
-            }
-            
+
+        from .auto_call_service import suspend_resume_task_service
+        result = suspend_resume_task_service(request=request, token=token)
+
+        if result.get("status") != "success":
+            status_code = 500 if result.get("code", 0) >= 5000 else (404 if result.get("code") == 4004 else 400)
+            raise HTTPException(status_code=status_code, detail=result)
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -2979,210 +1709,22 @@ async def describe_job_group(
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    查询任务组详情和执行情况
-    
-    根据job_group_id查询任务组的执行情况，包括状态、进度等信息
-    
-    需要在请求头中提供access-token进行身份验证
+    查询任务组详情（精简版）：控制器仅做基本校验与调用服务。
     """
     try:
-        # 获取用户信息
-        user_id = token.get("user_id")
-        if not user_id:
+        if not token or not token.get("user_id"):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
+                detail={"status": "error", "code": 1003, "message": "令牌中缺少用户ID信息"}
             )
-        
-        # 获取用户组织ID
-        org_query = "SELECT dcc_user_org_id FROM users WHERE id = %s"
-        org_result = execute_query(org_query, (user_id,))
-        
-        if not org_result or not org_result[0].get('dcc_user_org_id'):
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "用户未绑定组织或组织ID无效"
-                }
-            )
-        
-        organization_id = org_result[0]['dcc_user_org_id']
-        
-        # 确定job_group_id：如果提供了task_id，则根据task_id查询job_group_id
-        job_group_id = request.job_group_id
-        
-        if request.task_id:
-            # 根据task_id查询job_group_id
-            task_query = """
-                SELECT id, task_name, organization_id, job_group_id
-                FROM call_tasks 
-                WHERE id = %s AND organization_id = %s
-            """
-            task_result = execute_query(task_query, (request.task_id, organization_id))
-            
-            if not task_result:
-                raise HTTPException(
-                    status_code=404,
-                    detail={
-                        "status": "error",
-                        "code": 4004,
-                        "message": "任务不存在或无权限访问"
-                    }
-                )
-            
-            job_group_id = task_result[0].get('job_group_id')
-            if not job_group_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "status": "error",
-                        "code": 4005,
-                        "message": "该任务尚未开始外呼，没有job_group_id"
-                    }
-                )
-        elif not job_group_id:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 4001,
-                    "message": "必须提供job_group_id或task_id"
-                }
-            )
-        else:
-            # 验证任务组是否属于该用户组织
-            task_query = """
-                SELECT id, task_name, organization_id, job_group_id
-                FROM call_tasks 
-                WHERE job_group_id = %s AND organization_id = %s
-            """
-            task_result = execute_query(task_query, (job_group_id, organization_id))
-            
-            if not task_result:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "status": "error",
-                        "code": 4003,
-                        "message": "无权限访问该任务组"
-                    }
-                )
-        
-        # 导入describe_job_group模块
-        import sys
-        import os
-        sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'openAPI'))
-        from describe_job_group import Sample as DescribeJobGroupSample
-        
-        # 调用describe_job_group接口
-        try:
-            job_group_data = await DescribeJobGroupSample.main_async(
-                [],
-                job_group_id
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "status": "error",
-                    "code": 5003,
-                    "message": f"查询任务组详情失败: {str(e)}"
-                }
-            )
-        
-        if not job_group_data:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "status": "error",
-                    "code": 4004,
-                    "message": "未找到对应的任务组"
-                }
-            )
-        
-        # 解析返回数据 - 兼容驼峰和下划线两种命名方式
-        def get_attr_value(obj, *attr_names, default=None):
-            """尝试多个属性名获取值"""
-            for attr_name in attr_names:
-                if hasattr(obj, attr_name):
-                    value = getattr(obj, attr_name, default)
-                    if value is not None:
-                        return value
-            return default
-        
-        # 获取状态和修改时间
-        job_group_status = get_attr_value(job_group_data, 'Status', 'status', default='')
-        modify_time = get_attr_value(job_group_data, 'ModifyTime', 'modify_time', default=None)
-        progress = get_attr_value(job_group_data, 'Progress', 'progress', default=None)
-        
-        # 解析进度信息
-        progress_data = {
-            "scheduling": 0,
-            "total_completed": 0,
-            "executing": 0,
-            "failed": 0,
-            "total_jobs": 0
-        }
-        
-        if progress:
-            # 尝试多种方式获取进度数据（兼容驼峰和下划线）
-            progress_data["scheduling"] = get_attr_value(
-                progress, 'Scheduling', 'scheduling', default=0
-            ) or 0
-            progress_data["total_completed"] = get_attr_value(
-                progress, 'TotalCompleted', 'total_completed', default=0
-            ) or 0
-            progress_data["executing"] = get_attr_value(
-                progress, 'Executing', 'executing', default=0
-            ) or 0
-            # 未接通（失败）
-            progress_data["failed"] = get_attr_value(
-                progress, 'Failed', 'failed', default=0
-            ) or 0
-            progress_data["total_jobs"] = get_attr_value(
-                progress, 'TotalJobs', 'total_jobs', default=0
-            ) or 0
-            # 若后端未返回 Failed 字段，尝试用剩余量推导
-            if progress_data["failed"] == 0 and progress_data["total_jobs"] > 0:
-                remaining = progress_data["total_jobs"] - (
-                    progress_data["total_completed"] + progress_data["executing"] + progress_data["scheduling"]
-                )
-                if remaining > 0:
-                    progress_data["failed"] = remaining
-        
-        # 转换修改时间为可读格式
-        modify_time_str = None
-        if modify_time:
-            try:
-                # 如果modify_time是时间戳（毫秒），转换为datetime
-                if isinstance(modify_time, (int, float)):
-                    modify_time_dt = datetime.fromtimestamp(int(modify_time) / 1000)
-                    modify_time_str = modify_time_dt.strftime("%Y-%m-%d %H:%M:%S")
-                else:
-                    modify_time_str = str(modify_time)
-            except Exception:
-                modify_time_str = str(modify_time)
-        
-        return {
-            "status": "success",
-            "code": 200,
-            "message": "查询任务组详情成功",
-            "data": {
-                "job_group_id": job_group_id,
-                "task_id": request.task_id,
-                "status": job_group_status,
-                "modify_time": modify_time_str,
-                "modify_timestamp": modify_time if isinstance(modify_time, (int, float)) else None,
-                "progress": progress_data
-            }
-        }
-        
+
+        from .auto_call_service import describe_job_group_service
+        result = await describe_job_group_service(request=request, token=token)  # type: ignore
+
+        if result.get("status") != "success":
+            status_code = 500 if result.get("code", 0) >= 5000 else (404 if result.get("code") == 4004 else 400)
+            raise HTTPException(status_code=status_code, detail=result)
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -3216,46 +1758,60 @@ class TaskListResponse(BaseModel):
 async def get_task_list(
     page: int = 1,
     page_size: int = 20,
+    task_types: Optional[str] = Query(None, description="任务类型过滤，逗号分隔，如 2,3,5"),
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    分页查询任务列表（基于登录用户组织）。
-
-    返回字段：任务（task_name）、状态（task_type）、任务ID（id）、创建时间（create_time）、线索数（leads_count）。
+    分页查询任务列表：根据 user_id 查询数据库获取任务列表
     """
     try:
+        # 获取用户ID
         user_id = token.get("user_id")
         if not user_id:
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "令牌中缺少用户ID信息"
-                }
+                detail={"status": "error", "code": 1003, "message": "令牌中缺少用户ID信息"}
             )
 
-        # 获取组织ID
+        # 根据 user_id 获取 organization_id
         org_query = "SELECT dcc_user_org_id FROM users WHERE id = %s"
         org_result = execute_query(org_query, (user_id,))
         if not org_result or not org_result[0].get('dcc_user_org_id'):
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "status": "error",
-                    "code": 1003,
-                    "message": "用户未绑定组织或组织ID无效"
-                }
+                detail={"status": "error", "code": 1003, "message": "用户未绑定组织或组织ID无效"}
             )
         organization_id = org_result[0]['dcc_user_org_id']
 
+        # 解析任务类型过滤
+        task_type_list: Optional[List[int]] = None
+        if task_types:
+            parsed_types: List[int] = []
+            for raw in task_types.split(','):
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    parsed_types.append(int(raw))
+                except ValueError:
+                    continue
+            if parsed_types:
+                task_type_list = parsed_types
+
+        # 构建查询条件
+        base_condition = "organization_id = %s"
+        base_params: List[Any] = [organization_id]
+        if task_type_list:
+            placeholders = ','.join(['%s'] * len(task_type_list))
+            base_condition += f" AND task_type IN ({placeholders})"
+            base_params.extend(task_type_list)
+
         # 统计总数
-        count_sql = (
-            "SELECT COUNT(*) AS total FROM call_tasks WHERE organization_id = %s"
-        )
-        count_res = execute_query(count_sql, (organization_id,))
+        count_sql = f"SELECT COUNT(*) AS total FROM call_tasks WHERE {base_condition}"
+        count_res = execute_query(count_sql, tuple(base_params))
         total = count_res[0]['total'] if count_res and count_res[0].get('total') else 0
 
+        # 如果没有数据，直接返回
         if total == 0:
             return {
                 "status": "success",
@@ -3278,29 +1834,29 @@ async def get_task_list(
         page = max(1, min(page, total_pages))
         offset = (page - 1) * page_size
 
-        # 查询页面数据
-        list_sql = (
-            """
+        # 查询任务列表数据
+        list_sql = f"""
             SELECT id, task_name, task_type, create_time, leads_count
             FROM call_tasks
-            WHERE organization_id = %s
+            WHERE {base_condition}
             ORDER BY create_time DESC
             LIMIT %s OFFSET %s
-            """
-        )
-        rows = execute_query(list_sql, (organization_id, page_size, offset))
+        """
+        list_params = base_params + [page_size, offset]
+        rows = execute_query(list_sql, tuple(list_params))
 
-        items: List[TaskListItem] = []
+        # 构建返回数据
+        items: List[Dict[str, Any]] = []
         for r in rows or []:
             create_time_val = r['create_time']
             create_time_str = create_time_val.strftime("%Y-%m-%d %H:%M:%S") if hasattr(create_time_val, 'strftime') else str(create_time_val)
-            items.append(TaskListItem(
-                id=r['id'],
-                task_name=r['task_name'],
-                task_type=r['task_type'],
-                create_time=create_time_str,
-                leads_count=r['leads_count']
-            ))
+            items.append({
+                "id": r['id'],
+                "task_name": r['task_name'],
+                "task_type": r['task_type'],
+                "create_time": create_time_str,
+                "leads_count": r['leads_count']
+            })
 
         return {
             "status": "success",
@@ -3328,14 +1884,98 @@ async def get_task_list(
             }
         )
 
-# @auto_call_router.get("/tasks", response_model=GetTasksResponse)
-async def get_tasks_deprecated(
+
+class DiagnoseTaskRequest(BaseModel):
+    """诊断任务请求"""
+    task_id: int
+
+
+class DiagnoseTaskResponse(BaseModel):
+    """诊断任务响应"""
+    status: str
+    code: int
+    message: str
+    data: Dict[str, Any]
+
+
+@auto_call_router.post("/diagnose-task", response_model=DiagnoseTaskResponse)
+async def diagnose_task(
+    request: DiagnoseTaskRequest,
     token: Dict[str, Any] = Depends(verify_access_token)
 ):
     """
-    已废弃：请使用 /task_list 分页接口
+    诊断任务为什么没有被自动化处理
+    
+    返回任务的处理状态、是否符合条件、不符合的原因等信息
     """
     try:
-        raise HTTPException(status_code=410, detail={"status":"error","code":4100,"message":"/tasks 接口已废弃，请使用 /task_list"})
-    except HTTPException:
-        raise
+        from api.auto_task_monitor import auto_task_monitor
+        
+        result = auto_task_monitor.diagnose_task(request.task_id)
+        
+        if result["status"] == "error":
+            return DiagnoseTaskResponse(
+                status="error",
+                code=1002,
+                message=result.get("message", "诊断失败"),
+                data=result
+            )
+        
+        return DiagnoseTaskResponse(
+            status="success",
+            code=1000,
+            message="诊断完成",
+            data=result
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "code": 5000,
+                "message": f"诊断任务失败: {str(e)}"
+            }
+        )
+
+
+class TriggerMonitorResponse(BaseModel):
+    """触发监控任务响应"""
+    status: str
+    code: int
+    message: str
+    data: Dict[str, Any]
+
+
+@auto_call_router.post("/trigger-monitor", response_model=TriggerMonitorResponse)
+async def trigger_monitor(
+    token: Dict[str, Any] = Depends(verify_access_token)
+):
+    """
+    手动触发自动化任务监控
+    
+    立即执行一次监控任务，检查并处理待处理的任务
+    """
+    try:
+        from celery_tasks.task_monitor import monitor_pending_tasks
+        
+        # 异步触发监控任务
+        result = monitor_pending_tasks.delay()
+        
+        return TriggerMonitorResponse(
+            status="success",
+            code=1000,
+            message="监控任务已触发",
+            data={
+                "task_id": result.id,
+                "message": "监控任务已在后台执行，请稍后查看日志或任务状态"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "code": 5000,
+                "message": f"触发监控任务失败: {str(e)}"
+            }
+        )

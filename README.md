@@ -74,7 +74,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 # 前端开发
-cd dcc-digital-employee
+cd frontend
 npm install
 npm run dev
 ```
@@ -87,7 +87,7 @@ V1.0/
 │   ├── api/                   # API接口
 │   ├── database/              # 数据库相关
 │   └── requirements.txt       # Python依赖
-├── dcc-digital-employee/      # 前端代码
+├── frontend/                  # 前端代码
 │   ├── src/                   # 源代码
 │   └── package.json           # 前端依赖
 ├── deploy-ecs-direct.sh       # 直接部署脚本

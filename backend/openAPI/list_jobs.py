@@ -6,7 +6,6 @@ import sys
 from typing import List
 
 from alibabacloud_tea_openapi.client import Client as OpenApiClient
-from alibabacloud_credentials.client import Client as CredentialClient
 from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_tea_util import models as util_models
 from alibabacloud_openapi_util.client import Client as OpenApiUtilClient
@@ -23,10 +22,12 @@ class Sample:
         @return: Client
         @throws Exception
         """
+        # 使用直接凭据方式，避免 CredentialClient 的 signal 问题
         # 工程代码建议使用更安全的无AK方式，凭据配置方式请参见：https://help.aliyun.com/document_detail/378659.html。
-        credential = CredentialClient()
         config = open_api_models.Config(
-            credential=credential
+            # 直接使用环境变量中的 AccessKey，避免 CredentialClient 的 signal 依赖
+            access_key_id=os.getenv('ALIBABA_CLOUD_ACCESS_KEY_ID'),
+            access_key_secret=os.getenv('ALIBABA_CLOUD_ACCESS_KEY_SECRET')
         )
         # Endpoint 请参考 https://api.aliyun.com/product/OutboundBot
         config.endpoint = f'outboundbot.cn-shanghai.aliyuncs.com'

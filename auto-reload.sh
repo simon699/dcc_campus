@@ -58,7 +58,7 @@ restart_frontend() {
     fi
     
     # 启动前端服务
-    cd dcc-digital-employee
+    cd frontend
     nohup npm start > ../frontend.log 2>&1 &
     cd ..
     
@@ -93,12 +93,12 @@ monitor_frontend() {
     
     inotifywait -m -r -e modify,create,delete,move \
         --exclude '\.(log|tmp|cache|git)' \
-        dcc-digital-employee/src/ \
-        dcc-digital-employee/public/ \
-        dcc-digital-employee/package.json \
-        dcc-digital-employee/next.config.js \
-        dcc-digital-employee/tailwind.config.js \
-        dcc-digital-employee/tsconfig.json 2>/dev/null | while read path action file; do
+        frontend/src/ \
+        frontend/public/ \
+        frontend/package.json \
+        frontend/next.config.js \
+        frontend/tailwind.config.js \
+        frontend/tsconfig.json 2>/dev/null | while read path action file; do
         log_info "前端文件变化: $path$file ($action)"
         restart_frontend
     done
@@ -125,7 +125,7 @@ monitor_backend() {
 show_monitor_status() {
     echo ""
     log_info "监控状态:"
-    log_info "前端监控: dcc-digital-employee/src/, dcc-digital-employee/public/"
+    log_info "前端监控: frontend/src/, frontend/public/"
     log_info "后端监控: backend/api/, backend/database/, backend/utils/"
     log_info "服务地址:"
     log_info "  前端: http://localhost:3001"
@@ -143,7 +143,7 @@ main() {
     check_dependencies
     
     # 检查目录
-    if [ ! -d "dcc-digital-employee" ] || [ ! -d "backend" ]; then
+    if [ ! -d "frontend" ] || [ ! -d "backend" ]; then
         log_error "项目目录结构不正确"
         exit 1
     fi

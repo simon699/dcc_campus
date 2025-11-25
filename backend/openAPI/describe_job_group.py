@@ -39,11 +39,12 @@ class Sample:
     @staticmethod
     def main(
         args: List[str],
+        job_group_id: str
     ) -> None:
         client = Sample.create_client()
         describe_job_group_request = outbound_bot_20191226_models.DescribeJobGroupRequest(
-            instance_id='44f9ce96-c55c-4277-bad9-e7eaa7653644',
-            job_group_id='e7e76012-2380-4b8e-b00a-8d62653f1f33'
+            instance_id=os.getenv('INSTANCE_ID'),
+            job_group_id=job_group_id
         )
         runtime = util_models.RuntimeOptions()
         try:

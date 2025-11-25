@@ -147,7 +147,7 @@ smart_restart_frontend() {
     fi
     
     # 检查是否需要重新构建
-    cd dcc-digital-employee
+    cd frontend
     
     # 检查package.json是否有更新
     if [ -f ".next/BUILD_ID" ]; then
@@ -214,7 +214,7 @@ main() {
     echo ""
     
     # 检查目录结构
-    if [ ! -d "backend" ] || [ ! -d "dcc-digital-employee" ]; then
+    if [ ! -d "backend" ] || [ ! -d "frontend" ]; then
         log_error "项目目录结构不正确"
         exit 1
     fi

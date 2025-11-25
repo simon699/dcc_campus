@@ -79,37 +79,60 @@ class Sample:
         # 分批处理：每批最多100个任务，避免URL过长
         batch_size = 100
         all_jobs_id = []
+        total_batches = (len(jobs_json_list) + batch_size - 1) // batch_size
         
         for batch_start in range(0, len(jobs_json_list), batch_size):
             batch_end = min(batch_start + batch_size, len(jobs_json_list))
             batch_jobs = jobs_json_list[batch_start:batch_end]
+            batch_num = (batch_start // batch_size) + 1
             
-            # 构建查询参数
-            queries = {}
-            queries['InstanceId'] = instance_id
-            queries['JobGroupId'] = job_group_id
-            
-            # 动态添加JobsJson参数到查询参数中
-            for i, job_json in enumerate(batch_jobs, 1):
-                queries[f'JobsJson.{i}'] = json.dumps(job_json, ensure_ascii=False)
-            
-            # runtime options
-            runtime = util_models.RuntimeOptions()
-            request = open_api_models.OpenApiRequest(
-                query=OpenApiUtilClient.query(queries)
-            )
-            
-            # 调用API
-            response = client.call_api(params, request, runtime)
-            batch_jobs_id = response['body']['JobsId']
-            
-            # 如果返回的是单个字符串，转换为列表
-            if isinstance(batch_jobs_id, str):
-                batch_jobs_id = [batch_jobs_id]
-            elif not isinstance(batch_jobs_id, list):
-                batch_jobs_id = list(batch_jobs_id) if batch_jobs_id else []
-            
-            all_jobs_id.extend(batch_jobs_id)
+            try:
+                # 构建查询参数
+                queries = {}
+                queries['InstanceId'] = instance_id
+                queries['JobGroupId'] = job_group_id
+                
+                # 动态添加JobsJson参数到查询参数中
+                for i, job_json in enumerate(batch_jobs, 1):
+                    queries[f'JobsJson.{i}'] = json.dumps(job_json, ensure_ascii=False)
+                
+                # runtime options
+                runtime = util_models.RuntimeOptions()
+                request = open_api_models.OpenApiRequest(
+                    query=OpenApiUtilClient.query(queries)
+                )
+                
+                # 调用API
+                response = client.call_api(params, request, runtime)
+                batch_jobs_id = response['body']['JobsId']
+                
+                # 如果返回的是单个字符串，转换为列表
+                if isinstance(batch_jobs_id, str):
+                    batch_jobs_id = [batch_jobs_id]
+                elif not isinstance(batch_jobs_id, list):
+                    batch_jobs_id = list(batch_jobs_id) if batch_jobs_id else []
+                
+                # 验证返回的 jobs_id 数量是否与发送的数量一致
+                expected_count = len(batch_jobs)
+                actual_count = len(batch_jobs_id)
+                if actual_count != expected_count:
+                    print(f"[assign_jobs] 警告: 第{batch_num}/{total_batches}批，期望返回{expected_count}个jobs_id，实际返回{actual_count}个")
+                
+                all_jobs_id.extend(batch_jobs_id)
+                print(f"[assign_jobs] 第{batch_num}/{total_batches}批处理成功，发送{expected_count}个任务，返回{actual_count}个jobs_id")
+                
+            except Exception as e:
+                # 即使某批失败，也继续处理下一批
+                print(f"[assign_jobs] 错误: 第{batch_num}/{total_batches}批处理失败: {str(e)}")
+                print(f"[assign_jobs] 失败的批次包含{len(batch_jobs)}个任务，索引范围: {batch_start}-{batch_end-1}")
+                # 继续处理下一批，不中断整个流程
+                continue
+        
+        # 验证总数
+        total_sent = len(jobs_json_list)
+        total_received = len(all_jobs_id)
+        if total_received != total_sent:
+            print(f"[assign_jobs] 警告: 总共发送{total_sent}个任务，但只收到{total_received}个jobs_id，可能有遗漏")
         
         return all_jobs_id
 
@@ -132,37 +155,60 @@ class Sample:
         # 分批处理：每批最多100个任务，避免URL过长
         batch_size = 100
         all_jobs_id = []
+        total_batches = (len(jobs_json_list) + batch_size - 1) // batch_size
         
         for batch_start in range(0, len(jobs_json_list), batch_size):
             batch_end = min(batch_start + batch_size, len(jobs_json_list))
             batch_jobs = jobs_json_list[batch_start:batch_end]
+            batch_num = (batch_start // batch_size) + 1
             
-            # 构建查询参数
-            queries = {}
-            queries['InstanceId'] = instance_id
-            queries['JobGroupId'] = job_group_id
-            
-            # 动态添加JobsJson参数到查询参数中
-            for i, job_json in enumerate(batch_jobs, 1):
-                queries[f'JobsJson.{i}'] = json.dumps(job_json, ensure_ascii=False)
-            
-            # runtime options
-            runtime = util_models.RuntimeOptions()
-            request = open_api_models.OpenApiRequest(
-                query=OpenApiUtilClient.query(queries)
-            )
-            
-            # 调用API
-            response = await client.call_api_async(params, request, runtime)
-            batch_jobs_id = response.body.jobs_id
-            
-            # 如果返回的是单个字符串，转换为列表
-            if isinstance(batch_jobs_id, str):
-                batch_jobs_id = [batch_jobs_id]
-            elif not isinstance(batch_jobs_id, list):
-                batch_jobs_id = list(batch_jobs_id) if batch_jobs_id else []
-            
-            all_jobs_id.extend(batch_jobs_id)
+            try:
+                # 构建查询参数
+                queries = {}
+                queries['InstanceId'] = instance_id
+                queries['JobGroupId'] = job_group_id
+                
+                # 动态添加JobsJson参数到查询参数中
+                for i, job_json in enumerate(batch_jobs, 1):
+                    queries[f'JobsJson.{i}'] = json.dumps(job_json, ensure_ascii=False)
+                
+                # runtime options
+                runtime = util_models.RuntimeOptions()
+                request = open_api_models.OpenApiRequest(
+                    query=OpenApiUtilClient.query(queries)
+                )
+                
+                # 调用API
+                response = await client.call_api_async(params, request, runtime)
+                batch_jobs_id = response.body.jobs_id
+                
+                # 如果返回的是单个字符串，转换为列表
+                if isinstance(batch_jobs_id, str):
+                    batch_jobs_id = [batch_jobs_id]
+                elif not isinstance(batch_jobs_id, list):
+                    batch_jobs_id = list(batch_jobs_id) if batch_jobs_id else []
+                
+                # 验证返回的 jobs_id 数量是否与发送的数量一致
+                expected_count = len(batch_jobs)
+                actual_count = len(batch_jobs_id)
+                if actual_count != expected_count:
+                    print(f"[assign_jobs_async] 警告: 第{batch_num}/{total_batches}批，期望返回{expected_count}个jobs_id，实际返回{actual_count}个")
+                
+                all_jobs_id.extend(batch_jobs_id)
+                print(f"[assign_jobs_async] 第{batch_num}/{total_batches}批处理成功，发送{expected_count}个任务，返回{actual_count}个jobs_id")
+                
+            except Exception as e:
+                # 即使某批失败，也继续处理下一批
+                print(f"[assign_jobs_async] 错误: 第{batch_num}/{total_batches}批处理失败: {str(e)}")
+                print(f"[assign_jobs_async] 失败的批次包含{len(batch_jobs)}个任务，索引范围: {batch_start}-{batch_end-1}")
+                # 继续处理下一批，不中断整个流程
+                continue
+        
+        # 验证总数
+        total_sent = len(jobs_json_list)
+        total_received = len(all_jobs_id)
+        if total_received != total_sent:
+            print(f"[assign_jobs_async] 警告: 总共发送{total_sent}个任务，但只收到{total_received}个jobs_id，可能有遗漏")
         
         return all_jobs_id
 

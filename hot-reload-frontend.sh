@@ -35,8 +35,8 @@ log_error() {
 # 检查前端目录
 check_frontend_dir() {
     log_info "检查前端目录..."
-    if [ ! -d "dcc-digital-employee" ]; then
-        log_error "未找到前端目录 dcc-digital-employee"
+    if [ ! -d "frontend" ]; then
+        log_error "未找到前端目录 frontend"
         exit 1
     fi
     log_success "前端目录检查通过"
@@ -64,13 +64,13 @@ quick_restart_frontend() {
     log_info "快速重启前端服务..."
     
     # 确保在正确的目录
-    if [ ! -f "dcc-digital-employee/package.json" ]; then
+    if [ ! -f "frontend/package.json" ]; then
         log_error "未找到前端package.json文件"
         exit 1
     fi
     
     # 启动生产服务器（使用已构建的文件）
-    cd dcc-digital-employee
+    cd frontend
     
     # 检查是否已构建
     if [ ! -d ".next" ]; then
