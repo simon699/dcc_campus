@@ -48,6 +48,7 @@ celery_app.conf.update(
         'celery_tasks.task_handlers.create_leads_follow_by_task_and_phone': {'queue': 'follow_queue'},
         'celery_tasks.task_monitor.monitor_pending_tasks': {'queue': 'monitor_queue'},
         'celery_tasks.task_monitor.process_task_after_creation': {'queue': 'monitor_queue'},
+        'celery_tasks.task_monitor.refresh_task_status': {'queue': 'monitor_queue'},
     },
     
     # 任务优先级

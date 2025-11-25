@@ -417,9 +417,10 @@ def _query_task_execution_core(
     count_condition = "task_id = %s AND call_job_id IS NOT NULL AND call_job_id != ''"
     count_params = [request.task_id]
 
-    # 如果 apply_update=True（自动化任务），只处理 call_status 为空的记录，避免重复处理已有数据
+    # 如果 apply_update=True（自动化任务），处理 call_status 为空或 call_conversation 为空的记录
+    # 确保能获取到完整的通话数据（call_status 和 call_conversation）
     if request.apply_update:
-        count_condition += " AND (call_status IS NULL OR call_status = '')"
+        count_condition += " AND ((call_status IS NULL OR call_status = '') OR (call_conversation IS NULL OR call_conversation = ''))"
 
     if request.only_followed:
         count_condition += " AND leads_follow_id IS NOT NULL"
@@ -782,6 +783,12 @@ def _query_task_execution_core(
                         print(f"[query-task-execution] job_id={job_id} 数据无变化，跳过数据库更新（这是正常的性能优化）")
                     continue
 
+                # 重要：只有 call_status 为最终状态（'Succeeded' 或 'Failed'）时才保存到数据库
+                # 中间状态（如 'Executing'）不保存，继续轮询获取
+                if job_status not in ('Succeeded', 'Failed'):
+                    print(f"[query-task-execution] job_id={job_id} call_status={job_status} 不是最终状态，跳过数据库更新，继续轮询")
+                    continue
+
                 # 收集变更（是否执行更新由 apply_update 决定）
                 # 使用 call_job_id 而不是 job_id
                 update_params = (
@@ -1124,31 +1131,36 @@ def _background_execute_run(run_id: int, task_id: int, batch_size: int, sleep_ms
                 else:
                     recording_url = current_recording_url
 
-                try:
-                    execute_update(
-                        """
-                        UPDATE leads_task_list
-                        SET call_status = %s,
-                            planed_time = %s,
-                            call_task_id = %s,
-                            call_conversation = %s,
-                            calling_number = %s,
-                            recording_url = %s
-                        WHERE task_id = %s AND call_job_id = %s
-                        """,
-                        (
-                            job_status,
-                            plan_time,
-                            call_task_id,
-                            json.dumps(conversation) if conversation else None,
-                            calling_number,
-                            recording_url,
-                            task_id,
-                            job_id,
+                # 重要：只有 call_status 为最终状态（'Succeeded' 或 'Failed'）时才保存到数据库
+                # 中间状态（如 'Executing'）不保存，继续轮询获取
+                if job_status in ('Succeeded', 'Failed'):
+                    try:
+                        execute_update(
+                            """
+                            UPDATE leads_task_list
+                            SET call_status = %s,
+                                planed_time = %s,
+                                call_task_id = %s,
+                                call_conversation = %s,
+                                calling_number = %s,
+                                recording_url = %s
+                            WHERE task_id = %s AND call_job_id = %s
+                            """,
+                            (
+                                job_status,
+                                plan_time,
+                                call_task_id,
+                                json.dumps(conversation) if conversation else None,
+                                calling_number,
+                                recording_url,
+                                task_id,
+                                job_id,
+                            )
                         )
-                    )
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
+                else:
+                    print(f"[_background_execute_run] job_id={job_id} call_status={job_status} 不是最终状态，跳过数据库更新，继续轮询")
 
                 # 后台批处理也不在此处直接触发AI；AI在首次生成跟进时机由异步线程负责
 

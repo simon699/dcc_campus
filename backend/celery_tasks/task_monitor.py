@@ -3,7 +3,7 @@
 """
 import logging
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 from celery import Task
 import sys
 import os
@@ -16,6 +16,44 @@ from .task_handlers import (
 )
 
 logger = logging.getLogger(__name__)
+
+def _normalize_poll_pair(interval: int, duration: int) -> Tuple[int, int]:
+    interval = max(5, interval)
+    duration = max(interval, duration)
+    return interval, duration
+
+
+def _get_initial_poll_plan() -> List[Tuple[int, int]]:
+    """
+    解析任务创建后的高频轮询计划
+    配置格式：INITIAL_QUERY_POLL_PLAN = "10:120,60:1800,300:7200"
+    表示：10秒间隔持续120秒；60秒间隔持续1800秒；300秒间隔持续7200秒
+    """
+    plan_raw = os.getenv('INITIAL_QUERY_POLL_PLAN', '').strip()
+    poll_plan: List[Tuple[int, int]] = []
+    
+    if plan_raw:
+        for chunk in plan_raw.split(','):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                interval_str, duration_str = chunk.split(':', 1)
+                poll_plan.append(
+                    _normalize_poll_pair(
+                        int(interval_str.strip()),
+                        int(duration_str.strip())
+                    )
+                )
+            except ValueError:
+                logger.warning(f"INITIAL_QUERY_POLL_PLAN 片段 '{chunk}' 解析失败，已跳过")
+    
+    if not poll_plan:
+        interval = int(os.getenv('INITIAL_QUERY_POLL_INTERVAL', '10'))
+        duration = int(os.getenv('INITIAL_QUERY_POLL_DURATION', '120'))
+        poll_plan.append(_normalize_poll_pair(interval, duration))
+    
+    return poll_plan
 
 
 class CallbackTask(Task):
@@ -38,6 +76,25 @@ def monitor_pending_tasks(self):
         logger.info("开始执行监控任务: monitor_pending_tasks")
         logger.info("=" * 80)
         
+        def run_status_refresh(processed_ids: set, reason: str):
+            try:
+                refresh_tasks = auto_task_monitor.get_tasks_for_status_refresh(limit=20)
+                if not refresh_tasks:
+                    logger.info(f"{reason}：无需要兜底检查的任务")
+                    return
+                for task in refresh_tasks:
+                    task_id = task['task_id']
+                    if task_id in processed_ids:
+                        continue
+                    try:
+                        logger.info(f"{reason}：兜底检查任务状态 task_id={task_id}")
+                        status_result = auto_task_monitor.check_and_update_task_status(task_id)
+                        logger.info(f"{reason}：兜底检查结果 task_id={task_id}, result={status_result}")
+                    except Exception as inner_e:
+                        logger.warning(f"{reason}：兜底检查任务状态失败 task_id={task_id}, error={str(inner_e)}")
+            except Exception as outer_e:
+                logger.warning(f"{reason}：执行状态兜底检查失败: {str(outer_e)}")
+        
         # 获取待处理的任务列表
         pending_tasks = auto_task_monitor.get_pending_tasks()
         
@@ -46,8 +103,11 @@ def monitor_pending_tasks(self):
             for task in pending_tasks:
                 logger.info(f"  - 任务ID: {task['task_id']}, 名称: {task['task_name']}, 类型: {task['task_type']}, job_group_id: {task.get('job_group_id', 'N/A')}")
         
+        processed_task_ids = set()
+        
         if not pending_tasks:
-            logger.info("暂无待处理的任务")
+            logger.info("暂无待处理的任务，执行状态兜底检查")
+            run_status_refresh(processed_task_ids, "无待处理任务")
             return {"status": "success", "message": "暂无待处理的任务", "processed": 0}
         
         logger.info(f"开始处理 {len(pending_tasks)} 个待处理任务")
@@ -105,6 +165,7 @@ def monitor_pending_tasks(self):
                 # 检查并更新任务状态
                 status_result = auto_task_monitor.check_and_update_task_status(task_id)
                 logger.info(f"任务状态检查结果: task_id={task_id}, result={status_result}")
+                processed_task_ids.add(task_id)
                 
                 # 检查是否有缺少跟进记录的情况，需要触发创建
                 # 注意：call_job_id 为空的记录会在 sync_call_job_ids 完成匹配后处理，这里不提前处理
@@ -116,8 +177,7 @@ def monitor_pending_tasks(self):
                         SELECT COUNT(*) as total
                         FROM leads_task_list 
                         WHERE task_id = %s 
-                          AND call_status IS NOT NULL 
-                          AND call_status != ''
+                          AND call_status IN ('Succeeded', 'Failed')
                           AND leads_follow_id IS NULL
                           AND is_interested IS NULL
                           AND (
@@ -161,8 +221,7 @@ def monitor_pending_tasks(self):
                                         SELECT call_job_id, task_id, leads_phone
                                         FROM leads_task_list 
                                         WHERE task_id = %s 
-                                          AND call_status IS NOT NULL 
-                                          AND call_status != ''
+                                          AND call_status IN ('Succeeded', 'Failed')
                                           AND leads_follow_id IS NULL
                                           AND is_interested IS NULL
                                         LIMIT %s OFFSET %s
@@ -236,8 +295,7 @@ def monitor_pending_tasks(self):
                                     WHERE task_id = %s 
                                       AND call_job_id IS NOT NULL 
                                       AND call_job_id != ''
-                                      AND call_status IS NOT NULL 
-                                      AND call_status != ''
+                                      AND call_status IN ('Succeeded', 'Failed')
                                       AND leads_follow_id IS NULL
                                     LIMIT %s OFFSET %s
                                 """
@@ -341,6 +399,9 @@ def monitor_pending_tasks(self):
         else:
             message = f"已检查 {processed_count} 个任务，均未完成（仍在处理中）"
         
+        # 处理完待处理任务后，再执行一次状态兜底检查，确保可以晋级到 4
+        run_status_refresh(processed_task_ids, "处理待处理任务后")
+        
         return {
             "status": "success",
             "message": message,
@@ -350,6 +411,21 @@ def monitor_pending_tasks(self):
     
     except Exception as e:
         logger.error(f"监控待处理任务失败: {str(e)}")
+        raise self.retry(exc=e)
+
+
+@celery_app.task(base=CallbackTask, bind=True, max_retries=3, default_retry_delay=60)
+def refresh_task_status(self, task_id: int):
+    """
+    单次刷新任务状态
+    """
+    try:
+        logger.info(f"手动刷新任务状态: task_id={task_id}")
+        result = auto_task_monitor.check_and_update_task_status(task_id)
+        logger.info(f"刷新结果: task_id={task_id}, result={result}")
+        return {"status": "success", "result": result}
+    except Exception as e:
+        logger.error(f"刷新任务状态失败: task_id={task_id}, error={str(e)}")
         raise self.retry(exc=e)
 
 
@@ -385,13 +461,42 @@ def process_task_after_creation(self, task_id: int):
         
         try:
             if task_type == 2 and job_group_id:
-                # 外呼开始阶段：同步 call_job_id 和查询任务执行状态
+                # 外呼开始阶段：同步 call_job_id 和获取对话数据
                 sync_call_job_ids.delay(task_id, job_group_id)
                 logger.info(f"已触发同步 call_job_id: task_id={task_id}")
                 
-                # 延迟触发查询任务执行状态，等待 call_job_id 同步完成
-                query_task_execution.apply_async(args=[task_id], countdown=10)
-                logger.info(f"已延迟触发查询任务执行状态: task_id={task_id}")
+                # 创建任务后分阶段加速轮询执行状态
+                poll_plan = _get_initial_poll_plan()
+                
+                # 立即触发一次
+                query_task_execution.delay(task_id)
+                refresh_task_status.delay(task_id)
+                logger.info(f"已立即触发查询任务执行状态和状态刷新: task_id={task_id}")
+                
+                elapsed = 0
+                total_scheduled = 0
+                max_schedule = int(os.getenv('INITIAL_QUERY_MAX_SCHEDULES', '200'))
+                
+                for interval, duration in poll_plan:
+                    runs = max(1, duration // interval)
+                    for i in range(runs):
+                        countdown = elapsed + (i + 1) * interval
+                        query_task_execution.apply_async(args=[task_id], countdown=countdown)
+                        refresh_task_status.apply_async(args=[task_id], countdown=countdown)
+                        total_scheduled += 1
+                        logger.info(
+                            f"已调度查询及状态刷新: task_id={task_id}, interval={interval}s, "
+                            f"duration={duration}s, countdown={countdown}s"
+                        )
+                        if total_scheduled >= max_schedule:
+                            logger.warning(
+                                f"任务 {task_id} 的调度次数达到上限 {max_schedule}，"
+                                "后续将由常规监控任务接管"
+                            )
+                            break
+                    if total_scheduled >= max_schedule:
+                        break
+                    elapsed += runs * interval
             
             return {"status": "success", "message": f"任务 {task_id} 已开始处理"}
         

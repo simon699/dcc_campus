@@ -223,26 +223,50 @@ def query_task_execution(self, task_id: int):
         from api.auto_call_api import QueryTaskExecutionRequest, _query_task_execution_core
 
         # 先查询总数，确定需要处理多少页
-        # 只处理 call_status 为空的记录，避免重复处理已有数据的记录
+        # 处理 call_status 为空或 call_conversation 为空的记录，确保能获取到完整的通话数据
         count_query = """
             SELECT COUNT(*) as total
             FROM leads_task_list 
             WHERE task_id = %s 
               AND call_job_id IS NOT NULL 
               AND call_job_id != ''
-              AND (call_status IS NULL OR call_status = '')
+              AND ((call_status IS NULL OR call_status = '') 
+                   OR (call_conversation IS NULL OR call_conversation = ''))
         """
         count_result = execute_query(count_query, (task_id,))
         total_jobs = count_result[0]['total'] if count_result and count_result[0].get('total') else 0
         
         if total_jobs == 0:
-            # 检查是否有 call_status 有值但缺少跟进记录的情况（只处理 is_interested IS NULL 的记录）
+            # 检查是否有 call_job_id 但 call_status 仍为空的记录（可能是中间状态 Executing 没有被保存）
+            # 这些记录需要继续轮询，直到状态变为最终状态
+            pending_status_query = """
+                SELECT COUNT(*) as total
+                FROM leads_task_list 
+                WHERE task_id = %s 
+                  AND call_job_id IS NOT NULL 
+                  AND call_job_id != ''
+                  AND (call_status IS NULL OR call_status = '')
+            """
+            pending_status_result = execute_query(pending_status_query, (task_id,))
+            pending_status_total = pending_status_result[0]['total'] if pending_status_result and pending_status_result[0].get('total') else 0
+            
+            if pending_status_total > 0:
+                logger.info(f"任务 {task_id} 还有 {pending_status_total} 条记录 call_job_id 不为空但 call_status 为空（可能是中间状态未被保存），需要继续轮询，不标记任务完成")
+                # 不标记为完成，让监控任务继续轮询
+                return {
+                    "status": "success",
+                    "message": f"还有 {pending_status_total} 条记录需要继续轮询获取 call_status",
+                    "total_jobs": 0,
+                    "pending_status_total": pending_status_total
+                }
+            
+            # 检查是否有 call_status 为最终状态但缺少跟进记录的情况（只处理 is_interested IS NULL 的记录）
+            # 重要：只处理 call_status 为最终状态（'Succeeded' 或 'Failed'）的记录
             follow_count_query = """
                 SELECT COUNT(*) as total
                 FROM leads_task_list 
                 WHERE task_id = %s 
-                  AND call_status IS NOT NULL 
-                  AND call_status != ''
+                  AND call_status IN ('Succeeded', 'Failed')
                   AND leads_follow_id IS NULL
                   AND is_interested IS NULL
             """
@@ -263,8 +287,7 @@ def query_task_execution(self, task_id: int):
                         SELECT call_job_id, task_id, leads_phone
                         FROM leads_task_list 
                         WHERE task_id = %s 
-                          AND call_status IS NOT NULL 
-                          AND call_status != ''
+                          AND call_status IN ('Succeeded', 'Failed')
                           AND leads_follow_id IS NULL
                           AND is_interested IS NULL
                         LIMIT %s OFFSET %s
@@ -307,8 +330,7 @@ def query_task_execution(self, task_id: int):
                     SELECT COUNT(*) as total
                     FROM leads_task_list 
                     WHERE task_id = %s 
-                      AND call_status IS NOT NULL 
-                      AND call_status != ''
+                      AND call_status IN ('Succeeded', 'Failed')
                       AND leads_follow_id IS NULL
                       AND is_interested IS NULL
                 """
@@ -489,13 +511,27 @@ def query_task_execution(self, task_id: int):
             if failed_pages:
                 logger.warning(f"仍有 {len(failed_pages)} 个页处理失败: {failed_pages}，这些页的数据可能未更新")
             
+            # 如果查询到了记录但更新数为0，说明可能有中间状态（如 Executing）的记录被跳过了
+            # 需要继续轮询，不标记任务完成
+            if total_jobs > 0 and total_updated == 0:
+                logger.info(f"任务 {task_id} 查询到 {total_jobs} 条记录但更新数为0，可能是中间状态（如 Executing）被跳过，需要继续轮询，不标记任务完成")
+                # 不标记为完成，让监控任务继续轮询
+                return {
+                    "status": "success",
+                    "message": f"查询到 {total_jobs} 条记录但更新数为0，可能是中间状态被跳过，需要继续轮询",
+                    "total_jobs": total_jobs,
+                    "total_updated": total_updated,
+                    "total_pages": total_pages,
+                    "failed_pages": failed_pages if failed_pages else None
+                }
+            
             # 处理完 call_status 后，检查是否需要创建跟进记录或同步 is_interested（只处理 is_interested IS NULL 的记录）
+            # 重要：只处理 call_status 为最终状态（'Succeeded' 或 'Failed'）的记录
             follow_count_query = """
                 SELECT COUNT(*) as total
                 FROM leads_task_list 
                 WHERE task_id = %s 
-                  AND call_status IS NOT NULL 
-                  AND call_status != ''
+                  AND call_status IN ('Succeeded', 'Failed')
                   AND leads_follow_id IS NULL
                   AND is_interested IS NULL
             """
@@ -551,8 +587,7 @@ def query_task_execution(self, task_id: int):
                         SELECT call_job_id, task_id, leads_phone
                         FROM leads_task_list 
                         WHERE task_id = %s 
-                          AND call_status IS NOT NULL 
-                          AND call_status != ''
+                          AND call_status IN ('Succeeded', 'Failed')
                           AND leads_follow_id IS NULL
                           AND is_interested IS NULL
                         LIMIT %s OFFSET %s
@@ -595,8 +630,7 @@ def query_task_execution(self, task_id: int):
                     SELECT COUNT(*) as total
                     FROM leads_task_list 
                     WHERE task_id = %s 
-                      AND call_status IS NOT NULL 
-                      AND call_status != ''
+                      AND call_status IN ('Succeeded', 'Failed')
                       AND leads_follow_id IS NULL
                       AND is_interested IS NULL
                 """
@@ -679,8 +713,7 @@ def query_task_execution(self, task_id: int):
                     WHERE task_id = %s 
                       AND call_job_id IS NOT NULL 
                       AND call_job_id != ''
-                      AND call_status IS NOT NULL 
-                      AND call_status != ''
+                      AND call_status IN ('Succeeded', 'Failed')
                       AND leads_follow_id IS NULL
                       AND is_interested IS NULL
                 """
@@ -848,28 +881,57 @@ def create_leads_follow(self, call_job_id: str):
                 "message": f"call_job_id为{call_job_id}的记录尚未获取到call_status，暂不创建跟进记录"
             }
         
+        # 重要：只有 call_status 为最终状态（'Succeeded' 或 'Failed'）时才创建跟进记录
+        # 如果是中间状态（如 'Executing'），需要等待状态变为最终状态后再创建
+        if call_status not in ('Succeeded', 'Failed'):
+            logger.info(f"call_job_id={call_job_id} call_status={call_status} 不是最终状态，等待状态变为 Succeeded 或 Failed 后再创建跟进记录")
+            return {
+                "status": "success",
+                "code": 200,
+                "message": f"外呼状态为 {call_status}，等待状态变为最终状态（Succeeded 或 Failed）后再创建跟进记录",
+                "data": {
+                    "follow_id": None,
+                    "leads_id": leads_id,
+                    "leads_name": leads_name,
+                    "leads_phone": leads_phone,
+                    "leads_remark": None,
+                    "is_interested": None,
+                    "next_follow_time": None
+                }
+            }
+        
         # 如果没有 call_conversation，根据 call_status 创建跟进记录
         if not call_conversation:
-            # 情况B：call_conversation 为空但 call_status 有值
-            if call_status == 'Failed':
-                leads_remark = "呼叫失败；"
-                is_interested = 0
-                next_follow_time = None
-            elif call_status == 'Succeeded':
-                leads_remark = "外呼已完成，但暂无通话内容；"
-                is_interested = 0
-                next_follow_time = None
-            elif call_status:
-                leads_remark = f"外呼状态：{call_status}；"
-                is_interested = 0
-                next_follow_time = None
-            else:
-                # call_status 也为空，跳过
-                logger.info(f"call_job_id={call_job_id} 没有 call_conversation 且 call_status 为空，跳过跟进记录创建")
+            # 情况B：call_conversation 为空但 call_status 有值（此时 call_status 必须是 Succeeded 或 Failed）
+            # 重要：对于 call_status == 'Succeeded' 的情况，需要等待 call_conversation 获取到后再创建跟进记录
+            # 因为 call_conversation 可能稍后才会从阿里云获取到
+            if call_status == 'Succeeded':
+                logger.info(f"call_job_id={call_job_id} call_status=Succeeded 但 call_conversation 为空，等待 call_conversation 获取到后再创建跟进记录")
                 return {
                     "status": "success",
                     "code": 200,
-                    "message": "暂无通话内容和状态，未创建跟进记录",
+                    "message": "外呼成功但通话记录尚未获取，等待通话记录获取后再创建跟进记录",
+                    "data": {
+                        "follow_id": None,
+                        "leads_id": leads_id,
+                        "leads_name": leads_name,
+                        "leads_phone": leads_phone,
+                        "leads_remark": None,
+                        "is_interested": None,
+                        "next_follow_time": None
+                    }
+                }
+            elif call_status == 'Failed':
+                leads_remark = "呼叫失败；"
+                is_interested = 0
+                next_follow_time = None
+            else:
+                # 理论上不应该到这里，因为前面已经检查了 call_status 必须是 Succeeded 或 Failed
+                logger.warning(f"call_job_id={call_job_id} call_status={call_status} 不是预期的最终状态，跳过跟进记录创建")
+                return {
+                    "status": "success",
+                    "code": 200,
+                    "message": f"call_status={call_status} 不是预期的最终状态，跳过跟进记录创建",
                     "data": {
                         "follow_id": None,
                         "leads_id": leads_id,
@@ -881,7 +943,7 @@ def create_leads_follow(self, call_job_id: str):
                     }
                 }
             
-            # 创建跟进记录（无 call_conversation 的情况）
+            # 创建跟进记录（无 call_conversation 的情况，仅限 Failed 或其他非 Succeeded 状态）
             insert_query = """
                 INSERT INTO dcc_leads_follow 
                 (leads_id, follow_time, leads_remark, frist_follow_time, new_follow_time, next_follow_time)
@@ -912,6 +974,23 @@ def create_leads_follow(self, call_job_id: str):
                 return {"status": "skipped", "message": "is_interested 已被其他任务设置"}
             
             logger.info(f"任务 {call_job_id} 的跟进记录创建成功（无通话内容，call_status={call_status}）")
+            
+            # 创建跟进记录成功后，触发任务状态检查，确保及时更新 task_type
+            try:
+                # 获取 task_id
+                task_id_query = """
+                    SELECT task_id FROM leads_task_list WHERE call_job_id = %s LIMIT 1
+                """
+                task_id_result = execute_query(task_id_query, (call_job_id,))
+                if task_id_result:
+                    task_id = task_id_result[0].get('task_id')
+                    if task_id:
+                        from api.auto_task_monitor import auto_task_monitor
+                        status_result = auto_task_monitor.check_and_update_task_status(task_id)
+                        logger.info(f"跟进记录创建后触发任务状态检查: task_id={task_id}, result={status_result}")
+            except Exception as e:
+                logger.warning(f"触发任务状态检查失败: {str(e)}")
+            
             return {
                 "status": "success",
                 "code": 200,
@@ -1030,6 +1109,23 @@ def create_leads_follow(self, call_job_id: str):
             return {"status": "skipped", "message": "is_interested 已被其他任务设置"}
         
         logger.info(f"任务 {call_job_id} 的跟进记录创建成功")
+        
+        # 创建跟进记录成功后，触发任务状态检查，确保及时更新 task_type
+        try:
+            # 获取 task_id
+            task_id_query = """
+                SELECT task_id FROM leads_task_list WHERE call_job_id = %s LIMIT 1
+            """
+            task_id_result = execute_query(task_id_query, (call_job_id,))
+            if task_id_result:
+                task_id = task_id_result[0].get('task_id')
+                if task_id:
+                    from api.auto_task_monitor import auto_task_monitor
+                    status_result = auto_task_monitor.check_and_update_task_status(task_id)
+                    logger.info(f"跟进记录创建后触发任务状态检查: task_id={task_id}, result={status_result}")
+        except Exception as e:
+            logger.warning(f"触发任务状态检查失败: {str(e)}")
+        
         return {
             "status": "success",
             "code": 200,
@@ -1108,21 +1204,67 @@ def create_leads_follow_by_task_and_phone(self, task_id: int, leads_phone: str):
                 "message": f"task_id={task_id}, leads_phone={leads_phone} 的记录尚未获取到call_status，暂不创建跟进记录"
             }
         
+        # 重要：只有 call_status 为最终状态（'Succeeded' 或 'Failed'）时才创建跟进记录
+        # 如果是中间状态（如 'Executing'），需要等待状态变为最终状态后再创建
+        if call_status not in ('Succeeded', 'Failed'):
+            logger.info(f"task_id={task_id}, leads_phone={leads_phone} call_status={call_status} 不是最终状态，等待状态变为 Succeeded 或 Failed 后再创建跟进记录")
+            return {
+                "status": "success",
+                "code": 200,
+                "message": f"外呼状态为 {call_status}，等待状态变为最终状态（Succeeded 或 Failed）后再创建跟进记录",
+                "data": {
+                    "follow_id": None,
+                    "leads_id": leads_id,
+                    "leads_name": leads_name,
+                    "leads_phone": leads_phone,
+                    "leads_remark": None,
+                    "is_interested": None,
+                    "next_follow_time": None
+                }
+            }
+        
         # 如果 call_status = Failed，直接创建跟进记录，不调用 AI
         if call_status == 'Failed':
             leads_remark = "呼叫失败；"
             is_interested = 0
             next_follow_time = None
         elif not call_conversation:
-            # call_conversation 为空，根据 call_status 创建跟进记录
+            # call_conversation 为空，根据 call_status 创建跟进记录（此时 call_status 必须是 Succeeded 或 Failed）
+            # 重要：对于 call_status == 'Succeeded' 的情况，需要等待 call_conversation 获取到后再创建跟进记录
+            # 因为 call_conversation 可能稍后才会从阿里云获取到
             if call_status == 'Succeeded':
-                leads_remark = "外呼已完成，但暂无通话内容；"
-                is_interested = 0
-                next_follow_time = None
+                logger.info(f"task_id={task_id}, leads_phone={leads_phone} call_status=Succeeded 但 call_conversation 为空，等待 call_conversation 获取到后再创建跟进记录")
+                return {
+                    "status": "success",
+                    "code": 200,
+                    "message": "外呼成功但通话记录尚未获取，等待通话记录获取后再创建跟进记录",
+                    "data": {
+                        "follow_id": None,
+                        "leads_id": leads_id,
+                        "leads_name": leads_name,
+                        "leads_phone": leads_phone,
+                        "leads_remark": None,
+                        "is_interested": None,
+                        "next_follow_time": None
+                    }
+                }
             else:
-                leads_remark = f"外呼状态：{call_status}；"
-                is_interested = 0
-                next_follow_time = None
+                # 理论上不应该到这里，因为前面已经检查了 call_status 必须是 Succeeded 或 Failed
+                logger.warning(f"task_id={task_id}, leads_phone={leads_phone} call_status={call_status} 不是预期的最终状态，跳过跟进记录创建")
+                return {
+                    "status": "success",
+                    "code": 200,
+                    "message": f"call_status={call_status} 不是预期的最终状态，跳过跟进记录创建",
+                    "data": {
+                        "follow_id": None,
+                        "leads_id": leads_id,
+                        "leads_name": leads_name,
+                        "leads_phone": leads_phone,
+                        "leads_remark": None,
+                        "is_interested": None,
+                        "next_follow_time": None
+                    }
+                }
         else:
             # 有 call_conversation，调用 AI 分析
             try:
@@ -1215,6 +1357,15 @@ def create_leads_follow_by_task_and_phone(self, task_id: int, leads_phone: str):
             return {"status": "skipped", "message": "is_interested 已被其他任务设置"}
         
         logger.info(f"任务 task_id={task_id}, leads_phone={leads_phone} 的跟进记录创建成功")
+        
+        # 创建跟进记录成功后，触发任务状态检查，确保及时更新 task_type
+        try:
+            from api.auto_task_monitor import auto_task_monitor
+            status_result = auto_task_monitor.check_and_update_task_status(task_id)
+            logger.info(f"跟进记录创建后触发任务状态检查: task_id={task_id}, result={status_result}")
+        except Exception as e:
+            logger.warning(f"触发任务状态检查失败: {str(e)}")
+        
         return {
             "status": "success",
             "code": 200,
