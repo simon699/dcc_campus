@@ -76,8 +76,8 @@ class Sample:
         params = Sample.create_api_info()
         instance_id = os.getenv('INSTANCE_ID')
         
-        # 分批处理：每批最多100个任务，避免URL过长
-        batch_size = 100
+        # 分批处理：每批最多20个任务，降低批次失败影响
+        batch_size = 20
         all_jobs_id = []
         total_batches = (len(jobs_json_list) + batch_size - 1) // batch_size
         
@@ -152,8 +152,8 @@ class Sample:
         params = Sample.create_api_info()
         instance_id = os.getenv('INSTANCE_ID')
         
-        # 分批处理：每批最多100个任务，避免URL过长
-        batch_size = 100
+        # 分批处理：每批最多20个任务，降低批次失败影响
+        batch_size = 20
         all_jobs_id = []
         total_batches = (len(jobs_json_list) + batch_size - 1) // batch_size
         
