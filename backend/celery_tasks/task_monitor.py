@@ -139,8 +139,13 @@ def monitor_pending_tasks(self):
                     query_task_execution.delay(task_id)
                     logger.info(f"已触发查询任务执行状态: task_id={task_id}")
                 
-                elif task_type == 3:
-                    # 外呼完成跟进中：检查是否有 call_job_id 为空的情况，需要重新匹配
+                elif task_type >= 3:
+                    # task_type=3：外呼完成跟进中
+                    # task_type>=4：理论上已完成，但如果存在缺失数据（call_status 为空），需要重新处理
+                    if task_type >= 4:
+                        logger.info(f"任务 {task_id} 当前状态为 {task_type}，但检测到缺失数据，重新触发执行状态查询")
+
+                    # 检查是否有 call_job_id 为空的情况，需要重新匹配
                     from database.db import execute_query
                     empty_job_id_check_query = """
                         SELECT COUNT(*) as total

@@ -92,6 +92,27 @@ class AutoTaskMonitor:
                               )
                           )
                       )
+                      -- 已被标记为完成（task_type >= 4）但仍有 call_status 缺失的任务，需要重新处理
+                      OR (
+                          ct.task_type >= 4
+                          AND EXISTS (
+                              SELECT 1 FROM leads_task_list
+                              WHERE task_id = ct.id
+                                AND call_job_id IS NOT NULL
+                                AND call_job_id != ''
+                                AND (call_status IS NULL OR call_status = '')
+                          )
+                      )
+                      -- 已被标记为完成（task_type >= 4）但仍有最终状态缺少跟进记录的任务
+                      OR (
+                          ct.task_type >= 4
+                          AND EXISTS (
+                              SELECT 1 FROM leads_task_list
+                              WHERE task_id = ct.id
+                                AND call_status IN ('Succeeded', 'Failed')
+                                AND leads_follow_id IS NULL
+                          )
+                      )
                   )
                 ORDER BY ct.id ASC
                 LIMIT 10
@@ -418,6 +439,52 @@ class AutoTaskMonitor:
             final_status_result = execute_query(final_status_query, (task_id,))
             total_final_status = final_status_result[0]['total_final_status'] if final_status_result and final_status_result[0].get('total_final_status') else 0
             has_follow_final = final_status_result[0]['has_follow_final'] if final_status_result and final_status_result[0].get('has_follow_final') else 0
+
+            # 额外校验：如果存在 call_job_id 但 call_status 仍为空的记录，说明还有待处理数据，不能晋级为 4
+            pending_status_query = """
+                SELECT COUNT(*) as pending_status
+                FROM leads_task_list
+                WHERE task_id = %s
+                  AND call_job_id IS NOT NULL
+                  AND call_job_id != ''
+                  AND (call_status IS NULL OR call_status = '')
+            """
+            pending_status_result = execute_query(pending_status_query, (task_id,))
+            pending_status = pending_status_result[0]['pending_status'] if pending_status_result and pending_status_result[0].get('pending_status') else 0
+
+            # 如果已经标记为完成（task_type >= 4）但仍然有缺失的 call_status，需要降级到 3 重新处理
+            if pending_status > 0 and current_task_type >= 4:
+                logger.info(
+                    f"任务 {task_id} 标记为 {current_task_type} 但仍有 {pending_status} 条记录缺少 call_status，"
+                    "自动降级为 3 重新处理"
+                )
+                downgrade_query = """
+                    UPDATE call_tasks
+                    SET task_type = 3
+                    WHERE id = %s
+                """
+                execute_update(downgrade_query, (task_id,))
+                current_task_type = 3
+                updated = True
+
+            # 如果最终状态记录尚未全部创建跟进记录，且任务被标记为 4，也应降级为 3
+            if (
+                total_final_status > 0
+                and has_follow_final < total_final_status
+                and current_task_type >= 4
+            ):
+                logger.info(
+                    f"任务 {task_id} 标记为 {current_task_type} 但仍有 "
+                    f"{total_final_status - has_follow_final} 条最终状态记录缺少跟进，自动降级为 3"
+                )
+                downgrade_query = """
+                    UPDATE call_tasks
+                    SET task_type = 3
+                    WHERE id = %s
+                """
+                execute_update(downgrade_query, (task_id,))
+                current_task_type = 3
+                updated = True
             
             # 判断是否需要更新状态
             updated = False
@@ -435,9 +502,18 @@ class AutoTaskMonitor:
             
             # 如果所有需要创建跟进记录的任务（call_status 为最终状态）都已创建跟进记录，且当前状态 < 4，则更新为 4
             # 重要：只统计 call_status 为最终状态（'Succeeded' 或 'Failed'）的记录
-            logger.info(f"任务 {task_id} 状态检查: total_final_status={total_final_status}, has_follow_final={has_follow_final}, current_task_type={current_task_type}")
+            logger.info(
+                f"任务 {task_id} 状态检查: total_final_status={total_final_status}, "
+                f"has_follow_final={has_follow_final}, pending_status={pending_status}, "
+                f"current_task_type={current_task_type}"
+            )
             
-            if total_final_status > 0 and has_follow_final == total_final_status and current_task_type < 4:
+            if (
+                total_final_status > 0
+                and has_follow_final == total_final_status
+                and pending_status == 0
+                and current_task_type < 4
+            ):
                 update_query = """
                     UPDATE call_tasks
                     SET task_type = 4
@@ -447,7 +523,11 @@ class AutoTaskMonitor:
                 updated = True
                 logger.info(f"任务 {task_id} 状态更新为 4（跟进完成，所有最终状态的记录都已创建跟进记录）")
             elif total_final_status > 0:
-                logger.info(f"任务 {task_id} 未更新为 4: total_final_status={total_final_status}, has_follow_final={has_follow_final}, current_task_type={current_task_type}")
+                logger.info(
+                    f"任务 {task_id} 未更新为 4: total_final_status={total_final_status}, "
+                    f"has_follow_final={has_follow_final}, pending_status={pending_status}, "
+                    f"current_task_type={current_task_type}"
+                )
             elif total_final_status == 0:
                 # 如果没有最终状态的记录，检查是否所有记录都有跟进记录（可能是其他状态）
                 all_follow_query = """
@@ -471,7 +551,8 @@ class AutoTaskMonitor:
                     "has_follow": has_follow,
                     "has_interest": has_interest,
                     "total_final_status": total_final_status,
-                    "has_follow_final": has_follow_final
+                    "has_follow_final": has_follow_final,
+                    "pending_status": pending_status
                 }
             }
         except Exception as e:

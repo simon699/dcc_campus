@@ -699,7 +699,15 @@ def _query_task_execution_core(
         tasks = job_data.get('Tasks', [])
         # 记录任务状态用于后续检查
         task_statuses.append(job_data.get('Status', ''))
+        # 重要：call_status 应该从 Jobs.status 获取，而不是 tasks.status
         job_status = job_data.get('Status', '')
+
+        # 初始化任务相关字段（即使没有 tasks，也应该能够更新 call_status）
+        planned_time = None
+        call_task_id = ''
+        conversation = None
+        actual_time = None
+        calling_number = ''
 
         if tasks:
             # 获取最后一个任务的信息
@@ -712,100 +720,100 @@ def _query_task_execution_core(
             actual_time = last_task.get('ActualTime', None)
             calling_number = last_task.get('CallingNumber', '')
 
-            # 转换时间戳
-            plan_time = None
-            call_time = None
+        # 转换时间戳
+        plan_time = None
+        call_time = None
 
-            if planned_time:
-                try:
-                    plan_time = datetime.fromtimestamp(int(planned_time) / 1000)
-                except:
-                    plan_time = None
-
-            if actual_time:
-                try:
-                    call_time = datetime.fromtimestamp(int(actual_time) / 1000)
-                except:
-                    call_time = None
-
-            # 优化：从批量查询的结果中获取当前数据，而不是单独查询
-            # 使用 call_job_id 而不是 job_id 来查找
-            current_data = current_data_map.get(call_job_id, {})
-            current_status = current_data.get('call_status')
-            current_plan_time = current_data.get('planed_time')
-            current_call_task_id = current_data.get('call_task_id')
-            current_conversation = current_data.get('call_conversation')
-            current_calling_number = current_data.get('calling_number')
-            current_recording_url = current_data.get('recording_url')
-
-            # 获取录音URL - 如果skip_recording为True，跳过耗时操作
-            recording_url = None
-            if (not request.skip_recording) and job_status == 'Succeeded' and call_task_id:
-                current_recording_url = current_recording_url
-                try:
-                    new_recording_url = DownloadRecordingSample.main([], task_id=call_task_id)
-                    if new_recording_url:
-                        recording_url = new_recording_url
-                    elif current_recording_url:
-                        recording_url = current_recording_url
-                except Exception as e:
-                    print(f"获取录音URL失败 - call_task_id: {call_task_id}, 错误: {str(e)}")
-                    if current_recording_url:
-                        recording_url = current_recording_url
-            elif job_status == 'Succeeded' and call_task_id:
-                recording_url = current_recording_url
-
-            # 检查是否有变化（使用批量查询的结果）
+        if planned_time:
             try:
-                # 序列化conversation用于比较
-                new_conversation_str = json.dumps(conversation) if conversation else None
+                plan_time = datetime.fromtimestamp(int(planned_time) / 1000)
+            except:
+                plan_time = None
 
-                # 比较时间（允许秒级差异）
-                plan_time_match = False
-                if current_plan_time and plan_time:
-                    time_diff = abs((current_plan_time - plan_time).total_seconds())
-                    plan_time_match = time_diff < 1
-                elif not current_plan_time and not plan_time:
-                    plan_time_match = True
+        if actual_time:
+            try:
+                call_time = datetime.fromtimestamp(int(actual_time) / 1000)
+            except:
+                call_time = None
 
-                # 检查是否有变化
-                has_changes = (
-                    current_status != job_status or
-                    not plan_time_match or
-                    current_call_task_id != call_task_id or
-                    current_conversation != new_conversation_str or
-                    current_calling_number != calling_number or
-                    current_recording_url != recording_url
-                )
+        # 优化：从批量查询的结果中获取当前数据，而不是单独查询
+        # 使用 call_job_id 而不是 job_id 来查找
+        current_data = current_data_map.get(call_job_id, {})
+        current_status = current_data.get('call_status')
+        current_plan_time = current_data.get('planed_time')
+        current_call_task_id = current_data.get('call_task_id')
+        current_conversation = current_data.get('call_conversation')
+        current_calling_number = current_data.get('calling_number')
+        current_recording_url = current_data.get('recording_url')
 
-                if not has_changes:
-                    if updated_count == 0 and error_count == 0:
-                        print(f"[query-task-execution] job_id={job_id} 数据无变化，跳过数据库更新（这是正常的性能优化）")
-                    continue
-
-                # 重要：只有 call_status 为最终状态（'Succeeded' 或 'Failed'）时才保存到数据库
-                # 中间状态（如 'Executing'）不保存，继续轮询获取
-                if job_status not in ('Succeeded', 'Failed'):
-                    print(f"[query-task-execution] job_id={job_id} call_status={job_status} 不是最终状态，跳过数据库更新，继续轮询")
-                    continue
-
-                # 收集变更（是否执行更新由 apply_update 决定）
-                # 使用 call_job_id 而不是 job_id
-                update_params = (
-                    job_status,
-                    plan_time,
-                    call_task_id,
-                    json.dumps(conversation) if conversation else None,
-                    calling_number,
-                    recording_url,
-                    request.task_id,
-                    call_job_id
-                )
-                updates_batch.append(update_params)
-
+        # 获取录音URL - 如果skip_recording为True，跳过耗时操作
+        recording_url = None
+        if (not request.skip_recording) and job_status == 'Succeeded' and call_task_id:
+            current_recording_url = current_recording_url
+            try:
+                new_recording_url = DownloadRecordingSample.main([], task_id=call_task_id)
+                if new_recording_url:
+                    recording_url = new_recording_url
+                elif current_recording_url:
+                    recording_url = current_recording_url
             except Exception as e:
-                error_count += 1
-                print(f"更新任务 {job_id} 失败: {str(e)}")
+                print(f"获取录音URL失败 - call_task_id: {call_task_id}, 错误: {str(e)}")
+                if current_recording_url:
+                    recording_url = current_recording_url
+        elif job_status == 'Succeeded' and call_task_id:
+            recording_url = current_recording_url
+
+        # 检查是否有变化（使用批量查询的结果）
+        try:
+            # 序列化conversation用于比较
+            new_conversation_str = json.dumps(conversation) if conversation else None
+
+            # 比较时间（允许秒级差异）
+            plan_time_match = False
+            if current_plan_time and plan_time:
+                time_diff = abs((current_plan_time - plan_time).total_seconds())
+                plan_time_match = time_diff < 1
+            elif not current_plan_time and not plan_time:
+                plan_time_match = True
+
+            # 检查是否有变化
+            has_changes = (
+                current_status != job_status or
+                not plan_time_match or
+                current_call_task_id != call_task_id or
+                current_conversation != new_conversation_str or
+                current_calling_number != calling_number or
+                current_recording_url != recording_url
+            )
+
+            if not has_changes:
+                if updated_count == 0 and error_count == 0:
+                    print(f"[query-task-execution] job_id={job_id} 数据无变化，跳过数据库更新（这是正常的性能优化）")
+                continue
+
+            # 重要：只有 call_status 为最终状态（'Succeeded' 或 'Failed'）时才保存到数据库
+            # 中间状态（如 'Executing'）不保存，继续轮询获取
+            if job_status not in ('Succeeded', 'Failed'):
+                print(f"[query-task-execution] job_id={job_id} call_status={job_status} 不是最终状态，跳过数据库更新，继续轮询")
+                continue
+
+            # 收集变更（是否执行更新由 apply_update 决定）
+            # 使用 call_job_id 而不是 job_id
+            update_params = (
+                job_status,
+                plan_time,
+                call_task_id,
+                json.dumps(conversation) if conversation else None,
+                calling_number,
+                recording_url,
+                request.task_id,
+                call_job_id
+            )
+            updates_batch.append(update_params)
+
+        except Exception as e:
+            error_count += 1
+            print(f"更新任务 {job_id} 失败: {str(e)}")
 
     # 执行批量更新（如果 apply_update=True 且有变更）
     if request.apply_update and updates_batch:
@@ -1083,17 +1091,24 @@ def _background_execute_run(run_id: int, task_id: int, batch_size: int, sleep_ms
                 jobs_data = []
 
             # 入库更新（与 query_task_execution 的写法一致，精简录音下载）
+            # 重要：call_status 应该从 Jobs.status 获取，而不是 tasks.status
             for job_data in jobs_data or []:
                 job_id = job_data.get('JobId')
                 tasks = job_data.get('Tasks', [])
-                job_status = job_data.get('Status', '')
-                if not tasks:
-                    continue
-                last_task = tasks[-1]
-                planned_time = last_task.get('PlanedTime')
-                call_task_id = last_task.get('TaskId', '')
-                conversation = last_task.get('Conversation', '')
-                calling_number = last_task.get('CallingNumber', '')
+                job_status = job_data.get('Status', '')  # 从 Jobs.status 获取 call_status
+                
+                # 即使没有 tasks，也应该能够更新 call_status（从 Jobs.status 获取）
+                planned_time = None
+                call_task_id = ''
+                conversation = None
+                calling_number = ''
+                
+                if tasks:
+                    last_task = tasks[-1]
+                    planned_time = last_task.get('PlanedTime')
+                    call_task_id = last_task.get('TaskId', '')
+                    conversation = last_task.get('Conversation', '')
+                    calling_number = last_task.get('CallingNumber', '')
 
                 plan_time = None
                 if planned_time:
