@@ -154,13 +154,14 @@ async def get_leads_statistics(
             first_follow_conditions = []
             for start_time, end_time in first_follow_ranges:
                 if start_time and end_time:
-                    first_follow_conditions.append("(dlf.frist_follow_time >= %s AND dlf.frist_follow_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    first_follow_conditions.append("(dlf.frist_follow_time >= %s AND dlf.frist_follow_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     time_params.extend([start_time, end_time])
                 elif start_time:
                     first_follow_conditions.append("dlf.frist_follow_time >= %s")
                     time_params.append(start_time)
                 elif end_time:
-                    first_follow_conditions.append("dlf.frist_follow_time <= %s")
+                    first_follow_conditions.append("dlf.frist_follow_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     time_params.append(end_time)
             if first_follow_conditions:
                 time_condition_parts.append(f"({' OR '.join(first_follow_conditions)})")
@@ -169,13 +170,14 @@ async def get_leads_statistics(
             latest_follow_conditions = []
             for start_time, end_time in latest_follow_ranges:
                 if start_time and end_time:
-                    latest_follow_conditions.append("(dlf.new_follow_time >= %s AND dlf.new_follow_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    latest_follow_conditions.append("(dlf.new_follow_time >= %s AND dlf.new_follow_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     time_params.extend([start_time, end_time])
                 elif start_time:
                     latest_follow_conditions.append("dlf.new_follow_time >= %s")
                     time_params.append(start_time)
                 elif end_time:
-                    latest_follow_conditions.append("dlf.new_follow_time <= %s")
+                    latest_follow_conditions.append("dlf.new_follow_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     time_params.append(end_time)
             if latest_follow_conditions:
                 time_condition_parts.append(f"({' OR '.join(latest_follow_conditions)})")
@@ -184,13 +186,14 @@ async def get_leads_statistics(
             next_follow_conditions = []
             for start_time, end_time in next_follow_ranges:
                 if start_time and end_time:
-                    next_follow_conditions.append("(dlf.next_follow_time >= %s AND dlf.next_follow_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    next_follow_conditions.append("(dlf.next_follow_time >= %s AND dlf.next_follow_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     time_params.extend([start_time, end_time])
                 elif start_time:
                     next_follow_conditions.append("dlf.next_follow_time >= %s")
                     time_params.append(start_time)
                 elif end_time:
-                    next_follow_conditions.append("dlf.next_follow_time <= %s")
+                    next_follow_conditions.append("dlf.next_follow_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     time_params.append(end_time)
             if next_follow_conditions:
                 time_condition_parts.append(f"({' OR '.join(next_follow_conditions)})")
@@ -199,13 +202,14 @@ async def get_leads_statistics(
             first_arrive_conditions = []
             for start_time, end_time in first_arrive_ranges:
                 if start_time and end_time:
-                    first_arrive_conditions.append("(dlf.frist_arrive_time >= %s AND dlf.frist_arrive_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    first_arrive_conditions.append("(dlf.frist_arrive_time >= %s AND dlf.frist_arrive_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     time_params.extend([start_time, end_time])
                 elif start_time:
                     first_arrive_conditions.append("dlf.frist_arrive_time >= %s")
                     time_params.append(start_time)
                 elif end_time:
-                    first_arrive_conditions.append("dlf.frist_arrive_time <= %s")
+                    first_arrive_conditions.append("dlf.frist_arrive_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     time_params.append(end_time)
             if first_arrive_conditions:
                 time_condition_parts.append(f"({' OR '.join(first_arrive_conditions)})")
@@ -387,13 +391,14 @@ async def get_leads_count(
             first_follow_conditions = []
             for start_time, end_time in first_follow_ranges:
                 if start_time and end_time:
-                    first_follow_conditions.append("(dlf.frist_follow_time >= %s AND dlf.frist_follow_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    first_follow_conditions.append("(dlf.frist_follow_time >= %s AND dlf.frist_follow_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     params.extend([start_time, end_time])
                 elif start_time:
                     first_follow_conditions.append("dlf.frist_follow_time >= %s")
                     params.append(start_time)
                 elif end_time:
-                    first_follow_conditions.append("dlf.frist_follow_time <= %s")
+                    first_follow_conditions.append("dlf.frist_follow_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     params.append(end_time)
             if first_follow_conditions:
                 where_conditions.append(f"({' OR '.join(first_follow_conditions)})")
@@ -402,13 +407,14 @@ async def get_leads_count(
             latest_follow_conditions = []
             for start_time, end_time in latest_follow_ranges:
                 if start_time and end_time:
-                    latest_follow_conditions.append("(dlf.new_follow_time >= %s AND dlf.new_follow_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    latest_follow_conditions.append("(dlf.new_follow_time >= %s AND dlf.new_follow_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     params.extend([start_time, end_time])
                 elif start_time:
                     latest_follow_conditions.append("dlf.new_follow_time >= %s")
                     params.append(start_time)
                 elif end_time:
-                    latest_follow_conditions.append("dlf.new_follow_time <= %s")
+                    latest_follow_conditions.append("dlf.new_follow_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     params.append(end_time)
             if latest_follow_conditions:
                 where_conditions.append(f"({' OR '.join(latest_follow_conditions)})")
@@ -417,13 +423,14 @@ async def get_leads_count(
             next_follow_conditions = []
             for start_time, end_time in next_follow_ranges:
                 if start_time and end_time:
-                    next_follow_conditions.append("(dlf.next_follow_time >= %s AND dlf.next_follow_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    next_follow_conditions.append("(dlf.next_follow_time >= %s AND dlf.next_follow_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     params.extend([start_time, end_time])
                 elif start_time:
                     next_follow_conditions.append("dlf.next_follow_time >= %s")
                     params.append(start_time)
                 elif end_time:
-                    next_follow_conditions.append("dlf.next_follow_time <= %s")
+                    next_follow_conditions.append("dlf.next_follow_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     params.append(end_time)
             if next_follow_conditions:
                 where_conditions.append(f"({' OR '.join(next_follow_conditions)})")
@@ -432,13 +439,14 @@ async def get_leads_count(
             first_arrive_conditions = []
             for start_time, end_time in first_arrive_ranges:
                 if start_time and end_time:
-                    first_arrive_conditions.append("(dlf.frist_arrive_time >= %s AND dlf.frist_arrive_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    first_arrive_conditions.append("(dlf.frist_arrive_time >= %s AND dlf.frist_arrive_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     params.extend([start_time, end_time])
                 elif start_time:
                     first_arrive_conditions.append("dlf.frist_arrive_time >= %s")
                     params.append(start_time)
                 elif end_time:
-                    first_arrive_conditions.append("dlf.frist_arrive_time <= %s")
+                    first_arrive_conditions.append("dlf.frist_arrive_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     params.append(end_time)
             if first_arrive_conditions:
                 where_conditions.append(f"({' OR '.join(first_arrive_conditions)})")

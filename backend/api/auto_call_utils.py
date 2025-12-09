@@ -177,13 +177,14 @@ def build_leads_query(size_desc: Any, organization_id: str) -> Tuple[str, List[A
             first_follow_conditions = []
             for start_time, end_time in first_follow_ranges:
                 if start_time and end_time:
-                    first_follow_conditions.append("(f.frist_follow_time >= %s AND f.frist_follow_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    first_follow_conditions.append("(f.frist_follow_time >= %s AND f.frist_follow_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     query_params.extend([start_time, end_time])
                 elif start_time:
                     first_follow_conditions.append("f.frist_follow_time >= %s")
                     query_params.append(start_time)
                 elif end_time:
-                    first_follow_conditions.append("f.frist_follow_time <= %s")
+                    first_follow_conditions.append("f.frist_follow_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     query_params.append(end_time)
             if first_follow_conditions:
                 time_condition_parts.append(f"({' OR '.join(first_follow_conditions)})")
@@ -193,13 +194,14 @@ def build_leads_query(size_desc: Any, organization_id: str) -> Tuple[str, List[A
             latest_follow_conditions = []
             for start_time, end_time in latest_follow_ranges:
                 if start_time and end_time:
-                    latest_follow_conditions.append("(f.new_follow_time >= %s AND f.new_follow_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    latest_follow_conditions.append("(f.new_follow_time >= %s AND f.new_follow_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     query_params.extend([start_time, end_time])
                 elif start_time:
                     latest_follow_conditions.append("f.new_follow_time >= %s")
                     query_params.append(start_time)
                 elif end_time:
-                    latest_follow_conditions.append("f.new_follow_time <= %s")
+                    latest_follow_conditions.append("f.new_follow_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     query_params.append(end_time)
             if latest_follow_conditions:
                 time_condition_parts.append(f"({' OR '.join(latest_follow_conditions)})")
@@ -209,13 +211,14 @@ def build_leads_query(size_desc: Any, organization_id: str) -> Tuple[str, List[A
             next_follow_conditions = []
             for start_time, end_time in next_follow_ranges:
                 if start_time and end_time:
-                    next_follow_conditions.append("(f.next_follow_time >= %s AND f.next_follow_time <= %s)")
+                    # 结束时间使用 < DATE_ADD(end_time, INTERVAL 1 DAY) 来匹配该日期的所有时间
+                    next_follow_conditions.append("(f.next_follow_time >= %s AND f.next_follow_time < DATE_ADD(%s, INTERVAL 1 DAY))")
                     query_params.extend([start_time, end_time])
                 elif start_time:
                     next_follow_conditions.append("f.next_follow_time >= %s")
                     query_params.append(start_time)
                 elif end_time:
-                    next_follow_conditions.append("f.next_follow_time <= %s")
+                    next_follow_conditions.append("f.next_follow_time < DATE_ADD(%s, INTERVAL 1 DAY)")
                     query_params.append(end_time)
             if next_follow_conditions:
                 time_condition_parts.append(f"({' OR '.join(next_follow_conditions)})")
