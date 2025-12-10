@@ -629,16 +629,16 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
     
     if (customTimeInput.startTime && customTimeInput.endTime) {
       // 选择了开始和结束时间
-      const startTimeStr = customTimeInput.startTime.toISOString().split('T')[0];
-      const endTimeStr = customTimeInput.endTime.toISOString().split('T')[0];
+      const startTimeStr = formatLocalDate(customTimeInput.startTime);
+      const endTimeStr = formatLocalDate(customTimeInput.endTime);
       customValue = `custom:${startTimeStr}_${endTimeStr}`;
     } else if (customTimeInput.startTime) {
       // 只选择了开始时间
-      const startTimeStr = customTimeInput.startTime.toISOString().split('T')[0];
+      const startTimeStr = formatLocalDate(customTimeInput.startTime);
       customValue = `custom:${startTimeStr}_`;
     } else if (customTimeInput.endTime) {
       // 只选择了结束时间
-      const endTimeStr = customTimeInput.endTime.toISOString().split('T')[0];
+      const endTimeStr = formatLocalDate(customTimeInput.endTime);
       customValue = `custom:_${endTimeStr}`;
     } else {
       return; // 至少需要选择一个时间
@@ -881,6 +881,14 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
     );
   };
 
+  // 格式化本地日期为 YYYY-MM-DD 格式（避免时区问题）
+  const formatLocalDate = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // 获取时间范围的辅助函数
   const getTimeRange = (value: string) => {
     const today = new Date();
@@ -889,16 +897,16 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
     switch (value) {
       case 'today':
         return {
-          start: startOfDay.toISOString().split('T')[0],
-          end: startOfDay.toISOString().split('T')[0]
+          start: formatLocalDate(startOfDay),
+          end: formatLocalDate(startOfDay)
         };
       case 'yesterday':
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
         const startOfYesterday = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
         return {
-          start: startOfYesterday.toISOString().split('T')[0],
-          end: startOfYesterday.toISOString().split('T')[0]
+          start: formatLocalDate(startOfYesterday),
+          end: formatLocalDate(startOfYesterday)
         };
       case 'this_week':
         const startOfWeek = new Date(today);
@@ -906,8 +914,8 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
         const endOfWeek = new Date(startOfWeek);
         endOfWeek.setDate(startOfWeek.getDate() + 6);
         return {
-          start: startOfWeek.toISOString().split('T')[0],
-          end: endOfWeek.toISOString().split('T')[0]
+          start: formatLocalDate(startOfWeek),
+          end: formatLocalDate(endOfWeek)
         };
       case 'last_week':
         const startOfLastWeek = new Date(today);
@@ -915,22 +923,22 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
         const endOfLastWeek = new Date(startOfLastWeek);
         endOfLastWeek.setDate(startOfLastWeek.getDate() + 6);
         return {
-          start: startOfLastWeek.toISOString().split('T')[0],
-          end: endOfLastWeek.toISOString().split('T')[0]
+          start: formatLocalDate(startOfLastWeek),
+          end: formatLocalDate(endOfLastWeek)
         };
       case 'this_month':
         const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
         const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
         return {
-          start: startOfMonth.toISOString().split('T')[0],
-          end: endOfMonth.toISOString().split('T')[0]
+          start: formatLocalDate(startOfMonth),
+          end: formatLocalDate(endOfMonth)
         };
       case 'last_month':
         const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
         const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
         return {
-          start: startOfLastMonth.toISOString().split('T')[0],
-          end: endOfLastMonth.toISOString().split('T')[0]
+          start: formatLocalDate(startOfLastMonth),
+          end: formatLocalDate(endOfLastMonth)
         };
       case 'next_week':
         const startOfNextWeek = new Date(today);
@@ -938,15 +946,15 @@ export default function TaskCreationDrawer({ isOpen, onClose, onTaskCreated }: T
         const endOfNextWeek = new Date(startOfNextWeek);
         endOfNextWeek.setDate(startOfNextWeek.getDate() + 6);
         return {
-          start: startOfNextWeek.toISOString().split('T')[0],
-          end: endOfNextWeek.toISOString().split('T')[0]
+          start: formatLocalDate(startOfNextWeek),
+          end: formatLocalDate(endOfNextWeek)
         };
       case 'next_month':
         const startOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
         const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
         return {
-          start: startOfNextMonth.toISOString().split('T')[0],
-          end: endOfNextMonth.toISOString().split('T')[0]
+          start: formatLocalDate(startOfNextMonth),
+          end: formatLocalDate(endOfNextMonth)
         };
       default:
         return null;
