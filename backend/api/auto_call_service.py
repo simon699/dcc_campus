@@ -1193,6 +1193,30 @@ def query_task_execution_core_service(
                 return None
             return int(dt.timestamp() * 1000)
 
+        def calculate_duration_from_conversation(conversation: Any) -> Optional[int]:
+            """从 conversation 数据中计算通话时长（毫秒）"""
+            if not conversation:
+                return None
+            
+            # 如果 conversation 是列表，计算第一个和最后一个时间戳的差值
+            if isinstance(conversation, list) and len(conversation) > 0:
+                timestamps = []
+                for item in conversation:
+                    if isinstance(item, dict):
+                        timestamp = item.get('Timestamp') or item.get('timestamp')
+                        if timestamp:
+                            try:
+                                timestamps.append(int(timestamp))
+                            except (ValueError, TypeError):
+                                pass
+                
+                if len(timestamps) >= 2:
+                    # 计算第一个和最后一个时间戳的差值（毫秒）
+                    duration = max(timestamps) - min(timestamps)
+                    return duration if duration > 0 else None
+            
+            return None
+
         jobs_data: List[Dict[str, Any]] = []
         for row in page_rows:
             # MySQL JSON类型字段返回时已经是字典/列表，不需要再次解析
@@ -1210,11 +1234,15 @@ def query_task_execution_core_service(
                 else:
                     conversation_data = raw_conversation
 
+            # 计算通话时长
+            call_duration = calculate_duration_from_conversation(conversation_data)
+
             task_payload = {
                 "TaskId": row.get('call_task_id'),
                 "PlanedTime": datetime_to_millis(row.get('planed_time')),
                 "Conversation": conversation_data,
-                "CallingNumber": row.get('calling_number')
+                "CallingNumber": row.get('calling_number'),
+                "Duration": call_duration  # 添加通话时长（毫秒）
             }
             job_entry = {
                 "JobId": row.get('call_job_id'),
